@@ -1,0 +1,26 @@
+import { FormData } from "./types";
+
+export const DEFAULT_FORM_VALUES: FormData = {
+  monthly_rent: 1800,
+  monthly_budget: 2500,
+  initial_cash: 60000,
+  yearly_income: 100000,
+  filing_status: "single",
+  other_deductions: 0,
+  risk_appetite: "moderate",
+  zip_code: "",
+  house_price: "",
+  down_payment_pct: 8,
+  closing_cost_pct: 3,
+  maintenance_rate: 1,
+  insurance_annual: 2000,
+  sell_cost_pct: 5,
+  move_in_cost: 0,
+  mortgage_rate: "",
+  term_years: 30,
+  credit_quality: "good",
+  years: 10,
+  num_simulations: 500,
+  buy_delay_months: 0,
+  crash_outlook: "possible",
+};
