@@ -173,6 +173,110 @@ def get_state_tax_rate(zip_code: str) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Mortgage rate forecasting
+# ---------------------------------------------------------------------------
+
+def _compute_rate_stats(mort_rates: np.ndarray) -> dict:
+    """Compute rate statistics from the full historical monthly series.
+
+    Returns dict with current rate, recent trend, and long-term mean.
+    All rates in percent (e.g., 6.5 = 6.5%).
+    """
+    current = mort_rates[-1]
+
+    # 9-month momentum: captures recent direction without excess noise.
+    # Shorter than a full cycle so it doesn't wash out a clear trend reversal.
+    lookback = min(9, len(mort_rates) - 1)
+    trend = (mort_rates[-1] - mort_rates[-1 - lookback]) / lookback  # pct pts per month
+
+    # 5-year average (or as much as we have)
+    avg_5y = mort_rates[-min(60, len(mort_rates)):].mean()
+
+    # 20-year average (long-term anchor for mean reversion)
+    avg_20y = mort_rates[-min(240, len(mort_rates)):].mean()
+
+    # Historical monthly volatility (standard deviation of month-to-month changes)
+    diffs = np.diff(mort_rates[-min(120, len(mort_rates)):])
+    monthly_vol = diffs.std()
+
+    return {
+        "current": current,
+        "trend_per_month": trend,
+        "avg_5y": avg_5y,
+        "avg_20y": avg_20y,
+        "monthly_vol": monthly_vol,
+    }
+
+
+def generate_rate_path(
+    mort_rates: np.ndarray,
+    n_months: int,
+    rng: np.random.Generator,
+    rate_target: float | None = None,
+    rate_volatility_scale: float = 1.0,
+) -> np.ndarray:
+    """Generate a stochastic mortgage rate path (in percent, e.g. 6.5 = 6.5%).
+
+    Three-regime forecast:
+      1. Short-term (months 0-24): Extrapolate 2-year momentum with exponential decay.
+         Market has inertia — if rates have been falling, they tend to keep falling
+         for a while. Decay half-life = 12 months.
+      2. Medium-term (months 24-60): Blend from decayed trend toward 5-year average.
+         Represents the economy normalizing toward its recent equilibrium.
+      3. Long-term (months 60+): Ornstein-Uhlenbeck mean reversion to 20-year average.
+         Over long horizons, rates revert to structural levels.
+
+    At all times, calibrated noise is added (from historical month-to-month volatility).
+    Rates are floored at 1.0% and capped at 15.0%.
+
+    Works for any forecast horizon — no hardcoded term dependency.
+    """
+    stats = _compute_rate_stats(mort_rates)
+    current = stats["current"]
+    trend = stats["trend_per_month"]
+    avg_5y = stats["avg_5y"]
+    avg_20y = stats["avg_20y"]
+    vol = stats["monthly_vol"] * rate_volatility_scale
+
+    # Pro override: custom target rate replaces the 20-year avg as mean-reversion anchor
+    if rate_target is not None:
+        avg_20y = rate_target * 100  # convert decimal to percent to match internal units
+        avg_5y = (avg_5y + avg_20y) / 2  # blend medium-term toward target too
+
+    # Mean-reversion speed (Ornstein-Uhlenbeck kappa).
+    # Half-life of ~5 years = 60 months → kappa = ln(2)/60 ≈ 0.0116
+    kappa = np.log(2) / 60
+
+    # Trend decay half-life: 12 months
+    trend_decay = np.log(2) / 12
+
+    path = np.empty(n_months)
+    rate = current
+    noise = rng.normal(0, vol, n_months)
+
+    for m in range(n_months):
+        if m < 24:
+            # Phase 1: decaying trend + noise
+            decayed_trend = trend * np.exp(-trend_decay * m)
+            drift = decayed_trend
+        elif m < 60:
+            # Phase 2: blend from trend toward 5-year avg
+            blend = (m - 24) / 36  # 0 at month 24, 1 at month 60
+            trend_pull = trend * np.exp(-trend_decay * m)
+            mean_pull = kappa * (avg_5y - rate)
+            drift = (1 - blend) * trend_pull + blend * mean_pull
+        else:
+            # Phase 3: pure mean-reversion to 20-year average
+            drift = kappa * (avg_20y - rate)
+
+        rate = rate + drift + noise[m]
+        rate = np.clip(rate, 1.0, 15.0)
+        path[m] = rate
+
+    return path
+
+
+# ---------------------------------------------------------------------------
 # Stochastic path generation (the actual Monte Carlo)
 # ---------------------------------------------------------------------------
 
@@ -266,25 +370,29 @@ def apply_crash(
     rng: np.random.Generator,
     is_cumulative: bool = False,
     drawdown_months: int = 6,
+    recovery_pct: float = 0.5,
+    recovery_months: int = 60,
 ) -> np.ndarray:
-    """Apply a crash as an additional stress on top of the base MC path.
+    """Apply a crash with partial recovery on top of the base MC path.
 
-    The crash is a level shift: prices drop over drawdown_months, then
-    resume normal growth from the lower level. There is no "bounce back"
-    to pre-crash — the base MC path already captures normal market drift.
-    Recovery happens naturally through the ongoing historical growth rates,
-    just from a lower starting point (like 2008: dropped 20%, then normal
-    growth took ~8 years to reach pre-crash levels).
+    Three phases:
+      1. Drawdown: prices drop over drawdown_months (gradual decline)
+      2. Recovery: exponential recovery toward pre-crash level, recovering
+         recovery_pct of the gap over recovery_months
+      3. Residual: whatever gap remains is permanent (structural damage)
 
-    Both housing and stocks use the same model: gradual drawdown, then
-    the base path continues from the depressed level.
+    Default: 50% recovery over 60 months (housing) or 70% over 36 months (stocks).
+    recovery_pct=0 gives the old permanent-shift behavior.
+    recovery_pct=1 gives a full V-shaped recovery.
 
     Args:
         crash_prob: Probability of crash occurring within horizon.
         crash_magnitude: Total drop (e.g., 0.20 = 20% decline).
         horizon_months: Window in which crash can start.
         is_cumulative: True for cumulative paths (housing), False for growth factors (stocks).
-        drawdown_months: Months over which the drop happens. Default 6.
+        drawdown_months: Months over which the drop happens.
+        recovery_pct: Fraction of the crash gap that recovers (0=permanent, 1=full).
+        recovery_months: Months over which recovery_pct of the gap is recovered.
     """
     if crash_prob <= 0 or crash_magnitude <= 0:
         return path
@@ -296,28 +404,47 @@ def apply_crash(
         return result
 
     crash_start = rng.integers(0, min(horizon_months, n))
+    recovery_start = crash_start + drawdown_months
 
-    # Build the drawdown envelope: 1.0 → (1-magnitude) over drawdown_months,
-    # then stays at (1-magnitude) forever. Normal growth continues on top.
+    # Recovery rate: exponential decay of the gap.
+    # After recovery_months, the gap is reduced by recovery_pct.
+    # gap(t) = magnitude * (permanent_share + recoverable_share * exp(-lambda * t))
+    # where permanent_share = 1 - recovery_pct, recoverable_share = recovery_pct
+    # lambda = -ln(1 - recovery_pct) / recovery_months
+    if recovery_pct >= 1.0:
+        # Full recovery: use a fast decay that reaches ~99% recovery in recovery_months
+        lam = np.log(100) / max(recovery_months, 1)  # exp(-lam*T) ≈ 0.01
+    elif recovery_pct > 0 and recovery_months > 0:
+        lam = -np.log(1 - recovery_pct) / recovery_months
+    else:
+        lam = 0  # no recovery
+
+    permanent_floor = 1.0 - crash_magnitude * max(0, 1 - recovery_pct)
+
     envelope = np.ones(n)
-    floor = 1.0 - crash_magnitude
-
     for i in range(crash_start, n):
         months_in = i - crash_start
         if months_in < drawdown_months:
-            # Gradual decline
+            # Phase 1: gradual decline
             progress = (months_in + 1) / drawdown_months
             envelope[i] = 1.0 - crash_magnitude * progress
         else:
-            # Permanent level shift — base path growth continues from here
-            envelope[i] = floor
+            # Phase 2+3: recovery from trough toward permanent_floor
+            months_recovering = i - recovery_start
+            if lam > 0:
+                # Exponential recovery: trough → partial recovery
+                remaining_gap = crash_magnitude * recovery_pct * np.exp(-lam * months_recovering)
+                envelope[i] = permanent_floor - remaining_gap + crash_magnitude * recovery_pct
+                # Simplified: envelope = 1 - magnitude*(1-recovery_pct) - magnitude*recovery_pct*exp(-lam*t)
+                #           = 1 - magnitude * ((1-recovery_pct) + recovery_pct * exp(-lam*t))
+                envelope[i] = 1.0 - crash_magnitude * ((1 - recovery_pct) + recovery_pct * np.exp(-lam * months_recovering))
+            else:
+                envelope[i] = 1.0 - crash_magnitude  # permanent shift (old behavior)
 
     if is_cumulative:
-        # For cumulative paths (home value index), scale directly
         result *= envelope
     else:
-        # For growth factor paths (stock returns), convert envelope to
-        # month-over-month adjustments
+        # Convert envelope to month-over-month adjustments for growth factor paths
         envelope_growth = np.ones(n)
         for i in range(crash_start, n):
             if i == crash_start:

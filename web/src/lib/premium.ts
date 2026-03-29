@@ -13,10 +13,22 @@ export const PRO_FEATURES: ProFeature[] = [
     endpoint: "/llm-summary",
   },
   {
+    id: "buying-memo",
+    title: "Export Buying Memo",
+    description: "Download a personalized PDF with your numbers, market data, and analysis — ready to share with your lender or agent.",
+    endpoint: "/buying-memo",
+  },
+  {
     id: "sensitivity",
     title: "What-If Analysis",
     description: "See how changing your rate, price, or down payment would shift the outcome. Interactive heatmap included.",
     endpoint: "/sensitivity",
+  },
+  {
+    id: "scenarios",
+    title: "Save & Compare Scenarios",
+    description: "Save different scenarios and compare them side by side. Get alerts when market changes affect your decision.",
+    endpoint: "/scenarios",
   },
   {
     id: "trend",

@@ -4,6 +4,7 @@ interface InputFieldProps {
   label: string;
   value: string | number;
   onChange: (value: string) => void;
+  onFocus?: () => void;
   prefix?: string;
   suffix?: string;
   placeholder?: string;
@@ -17,6 +18,7 @@ export default function InputField({
   label,
   value,
   onChange,
+  onFocus,
   prefix,
   suffix,
   placeholder,
@@ -41,6 +43,7 @@ export default function InputField({
           type={type}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onFocus={onFocus}
           placeholder={placeholder}
           className={`rounded-xl border border-gray-200 bg-white/80 backdrop-blur-sm px-3 py-2.5 text-sm
             focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 outline-none transition-all

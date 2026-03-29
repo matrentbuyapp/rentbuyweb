@@ -173,6 +173,8 @@ _TAX_BRACKETS = {
     ],
 }
 
+# SALT deduction cap: $40,000 per the 2025 tax bill (raised from $10,000 TCJA cap).
+# If this reverts, update to 10_000.0.
 SALT_CAP = 40_000.0
 
 
@@ -212,9 +214,10 @@ def monthly_tax_savings(
         yearly_interest = sum(amort[i].interest for i in range(block_start, block_end))
         yearly_prop_tax = float(monthly_property_tax[block_start:block_end].sum())
 
-        salt = min(SALT_CAP, annual_state_tax + yearly_prop_tax)
-        total_itemized = yearly_interest + salt + other_deductions
-        excess = max(0.0, total_itemized - std_deduction)
+        prorate = block_len / 12
+        salt = min(SALT_CAP * prorate, annual_state_tax * prorate + yearly_prop_tax)
+        total_itemized = yearly_interest + salt + other_deductions * prorate
+        excess = max(0.0, total_itemized - std_deduction * prorate)
         monthly_saving = (excess * rate) / block_len
 
         result[block_start:block_end] = monthly_saving

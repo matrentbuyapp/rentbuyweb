@@ -29,12 +29,16 @@ def _extract_summary_stats(result: SimulationResult) -> dict:
     final = m[-1]
     first_own = next((s for s in m if s.mortgage_payment > 0), m[0])
 
-    # Breakeven
+    # Sustained breakeven: when buyer durably pulls ahead
     breakeven = None
-    for i, s in enumerate(m):
-        if s.buyer_net_worth > s.renter_net_worth:
-            breakeven = i
-            break
+    n = len(m)
+    if n > 0 and m[-1].buyer_net_worth > m[-1].renter_net_worth:
+        for i in range(n - 1, -1, -1):
+            if m[i].buyer_net_worth <= m[i].renter_net_worth:
+                breakeven = i + 1 if i + 1 < n else None
+                break
+        else:
+            breakeven = 0
 
     # Max renter advantage
     max_renter_lead = max(

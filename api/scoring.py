@@ -42,22 +42,27 @@ def compute_buy_score(result: SimulationResult) -> int:
     nw_score = (nw_ratio + 0.3) / 0.6 * 100
 
     # --- Component 2: Breakeven timing (25%) ---
-    # Earlier breakeven → higher score. No breakeven → low score.
-    breakeven = None
-    for i, s in enumerate(m):
-        if s.buyer_net_worth > s.renter_net_worth:
-            breakeven = i
-            break
+    # Uses sustained breakeven (when buyer durably pulls ahead), not first crossing.
+    # Also penalizes volatile scenarios where the lead changes frequently.
+    breakeven = result.breakeven_month  # None if buyer never durably leads
+    crossings = result.crossing_count
 
+    early = max(months * 0.20, 6)    # first 20% of horizon → strong
+    mid = months * 0.50              # first 50% → decent
     if breakeven is None:
-        breakeven_score = 15  # never breaks even, but not zero (might near end)
-    elif breakeven <= 24:
-        breakeven_score = 95  # breaks even within 2 years — very strong
-    elif breakeven <= 60:
-        breakeven_score = 80 - (breakeven - 24) * (40 / 36)  # linear 80→40 over months 24-60
+        breakeven_score = 15
+    elif breakeven <= early:
+        breakeven_score = 95
+    elif breakeven <= mid:
+        breakeven_score = 80 - (breakeven - early) * (40 / (mid - early))
     else:
-        breakeven_score = 40 - (breakeven - 60) * (25 / 60)  # linear 40→15 over months 60-120
+        tail = months - mid
+        breakeven_score = 40 - (breakeven - mid) * (25 / tail) if tail > 0 else 40
         breakeven_score = max(breakeven_score, 15)
+
+    # Penalize volatile scenarios — each extra crossing beyond 1 costs 3 points
+    if crossings > 1:
+        breakeven_score = max(15, breakeven_score - (crossings - 1) * 3)
 
     # --- Component 3: Affordability (15%) ---
     # What fraction of months is total_housing_cost within budget?

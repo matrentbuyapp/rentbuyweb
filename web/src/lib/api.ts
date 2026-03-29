@@ -1,9 +1,17 @@
-import { FormData, SummaryRequest, SummaryResponse } from "./types";
+import { FormData, SummaryRequest, SummaryResponse, Scenario, ScenarioList, Alert, AlertList } from "./types";
+import { getDeviceId } from "./device";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-export async function postSummary(form: FormData): Promise<SummaryResponse> {
-  const body: SummaryRequest = {
+function proHeaders(): Record<string, string> {
+  return {
+    "Content-Type": "application/json",
+    "X-Device-Id": getDeviceId(),
+  };
+}
+
+export function formToRequest(form: FormData): SummaryRequest {
+  return {
     monthly_rent: form.monthly_rent,
     monthly_budget: form.monthly_budget,
     initial_cash: form.initial_cash,
@@ -23,10 +31,23 @@ export async function postSummary(form: FormData): Promise<SummaryResponse> {
     term_years: form.term_years,
     credit_quality: form.credit_quality,
     years: form.years,
+    stay_years: form.stay_years === form.years ? null : form.stay_years,
     num_simulations: form.num_simulations,
     buy_delay_months: form.buy_delay_months,
-    crash_outlook: form.crash_outlook,
+    outlook_preset: form.outlook_preset,
+    housing_crash_prob: form.housing_crash_prob,
+    housing_crash_drop: form.housing_crash_drop,
+    housing_recovery_pct: form.housing_recovery_pct,
+    housing_recovery_months: form.housing_recovery_months,
+    stock_crash_prob: form.stock_crash_prob,
+    stock_crash_drop: form.stock_crash_drop,
+    stock_recovery_pct: form.stock_recovery_pct,
+    stock_recovery_months: form.stock_recovery_months,
   };
+}
+
+export async function postSummary(form: FormData): Promise<SummaryResponse> {
+  const body = formToRequest(form);
 
   let res: Response;
   try {
@@ -43,8 +64,138 @@ export async function postSummary(form: FormData): Promise<SummaryResponse> {
 
   if (!res.ok) {
     const text = await res.text();
+    // Parse structured validation errors from the API
+    try {
+      const json = JSON.parse(text);
+      if (json.detail && Array.isArray(json.detail)) {
+        const messages = json.detail.map((d: { message?: string }) => d.message).filter(Boolean);
+        if (messages.length > 0) {
+          throw new Error(messages.join("\n"));
+        }
+      }
+    } catch (e) {
+      if (e instanceof Error && !e.message.startsWith("API error")) throw e;
+    }
     throw new Error(`API error ${res.status}: ${text}`);
   }
 
   return res.json();
+}
+
+// --- PRO: CSV Export ---
+
+export async function downloadCsv(form: FormData): Promise<void> {
+  const body = formToRequest(form);
+  const res = await fetch(`${API_URL}/summary/csv`, {
+    method: "POST",
+    headers: proHeaders(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`CSV export failed: ${res.status}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "rent-vs-buy.csv";
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// --- PRO: Device Email ---
+
+export async function registerEmail(email: string): Promise<void> {
+  const res = await fetch(`${API_URL}/devices/email`, {
+    method: "POST",
+    headers: proHeaders(),
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) throw new Error(`Failed to register email: ${res.status}`);
+}
+
+// --- PRO: Scenarios ---
+
+export async function saveScenario(
+  name: string,
+  inputs: SummaryRequest,
+  response?: SummaryResponse | null,
+): Promise<Scenario> {
+  const res = await fetch(`${API_URL}/scenarios`, {
+    method: "POST",
+    headers: proHeaders(),
+    body: JSON.stringify({ name, inputs, response: response ?? null }),
+  });
+  if (!res.ok) throw new Error(`Failed to save scenario: ${res.status}`);
+  return res.json();
+}
+
+export async function listScenarios(): Promise<Scenario[]> {
+  const res = await fetch(`${API_URL}/scenarios`, { headers: proHeaders() });
+  if (!res.ok) throw new Error(`Failed to list scenarios: ${res.status}`);
+  const data: ScenarioList = await res.json();
+  return data.scenarios;
+}
+
+export async function getScenario(id: string): Promise<Scenario> {
+  const res = await fetch(`${API_URL}/scenarios/${id}`, { headers: proHeaders() });
+  if (!res.ok) throw new Error(`Scenario not found: ${res.status}`);
+  return res.json();
+}
+
+export async function runScenario(id: string): Promise<SummaryResponse> {
+  const res = await fetch(`${API_URL}/scenarios/${id}/run`, {
+    method: "POST",
+    headers: proHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to re-run scenario: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteScenario(id: string): Promise<void> {
+  const res = await fetch(`${API_URL}/scenarios/${id}`, {
+    method: "DELETE",
+    headers: proHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to delete scenario: ${res.status}`);
+}
+
+// --- PRO: Alerts ---
+
+export async function addAlert(
+  scenarioId: string,
+  alertType: "threshold" | "shift" | "digest",
+  config?: { shift_months?: number },
+): Promise<Alert> {
+  const res = await fetch(`${API_URL}/scenarios/${scenarioId}/alerts`, {
+    method: "POST",
+    headers: proHeaders(),
+    body: JSON.stringify({ alert_type: alertType, config: config ?? null }),
+  });
+  if (res.status === 409) throw new Error("Alert type already exists for this scenario");
+  if (!res.ok) throw new Error(`Failed to add alert: ${res.status}`);
+  return res.json();
+}
+
+export async function listAlerts(scenarioId: string): Promise<Alert[]> {
+  const res = await fetch(`${API_URL}/scenarios/${scenarioId}/alerts`, {
+    headers: proHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to list alerts: ${res.status}`);
+  const data: AlertList = await res.json();
+  return data.alerts;
+}
+
+export async function deleteAlert(scenarioId: string, alertId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/scenarios/${scenarioId}/alerts/${alertId}`, {
+    method: "DELETE",
+    headers: proHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to delete alert: ${res.status}`);
+}
+
+export async function deleteAllAlerts(scenarioId: string): Promise<void> {
+  const res = await fetch(`${API_URL}/scenarios/${scenarioId}/alerts`, {
+    method: "DELETE",
+    headers: proHeaders(),
+  });
+  if (!res.ok) throw new Error(`Failed to delete alerts: ${res.status}`);
 }

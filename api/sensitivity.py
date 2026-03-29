@@ -59,10 +59,14 @@ class SensitivityResult:
 
 
 def _find_breakeven(monthly: list) -> int | None:
-    for i, m in enumerate(monthly):
-        if m.buyer_net_worth > m.renter_net_worth:
-            return i
-    return None
+    """Sustained breakeven: when buyer durably pulls ahead through the end."""
+    n = len(monthly)
+    if n == 0 or monthly[-1].buyer_net_worth <= monthly[-1].renter_net_worth:
+        return None
+    for i in range(n - 1, -1, -1):
+        if monthly[i].buyer_net_worth <= monthly[i].renter_net_worth:
+            return i + 1 if i + 1 < n else None
+    return 0  # buyer always ahead
 
 
 def _run_variant(

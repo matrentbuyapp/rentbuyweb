@@ -1,13 +1,13 @@
 "use client";
 
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from "recharts";
 import { MonthlyData } from "@/lib/types";
 import { formatCompact, formatCurrency } from "@/lib/formatters";
 import ChartCard from "./ChartCard";
 
-interface Props { monthly: MonthlyData[]; }
+interface Props { monthly: MonthlyData[]; sellMonth?: number | null; }
 
-export default function EquityGrowthChart({ monthly }: Props) {
+export default function EquityGrowthChart({ monthly, sellMonth }: Props) {
   const data = monthly.map((m, i) => ({ month: i, equity: Math.round(m.buyer_equity) }));
   return (
     <ChartCard title="Equity Growth">
@@ -19,6 +19,9 @@ export default function EquityGrowthChart({ monthly }: Props) {
           <Tooltip formatter={(v: number) => formatCurrency(v)} labelFormatter={(m: number) => `Month ${m + 1}`}
             contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }} />
           <Area type="monotone" dataKey="equity" stroke="#a78bfa" fill="#a78bfa" fillOpacity={0.2} strokeWidth={2.5} name="Equity" />
+          {sellMonth != null && (
+            <ReferenceLine x={sellMonth} stroke="#ef4444" strokeDasharray="4 4" label={{ value: "Sell", fontSize: 10, fill: "#ef4444" }} />
+          )}
         </AreaChart>
       </ResponsiveContainer>
     </ChartCard>

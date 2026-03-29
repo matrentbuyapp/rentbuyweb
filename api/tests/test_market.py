@@ -197,13 +197,25 @@ class TestCrash:
         result = apply_crash(path, 1.0, 0.20, 24, rng, is_cumulative=True, drawdown_months=6)
         assert result.min() < 2.0
 
-    def test_cumulative_crash_level_shift(self):
-        """Cumulative crash: after drawdown, all months should be at lower level."""
+    def test_cumulative_crash_level_shift_no_recovery(self):
+        """With recovery_pct=0, crash is permanent (old behavior)."""
         path = np.ones(120) * 2.0
-        rng = np.random.default_rng(0)  # crash at month 0
-        result = apply_crash(path, 1.0, 0.20, 1, rng, is_cumulative=True, drawdown_months=6)
-        # After drawdown (month 6+), should be at 2.0 * 0.8 = 1.6
+        rng = np.random.default_rng(0)
+        result = apply_crash(path, 1.0, 0.20, 1, rng, is_cumulative=True,
+                             drawdown_months=6, recovery_pct=0)
         np.testing.assert_allclose(result[6:], 1.6, atol=0.01)
+
+    def test_cumulative_crash_partial_recovery(self):
+        """Default recovery: after drawdown, path recovers partially toward pre-crash level."""
+        path = np.ones(120) * 2.0
+        rng = np.random.default_rng(0)
+        result = apply_crash(path, 1.0, 0.20, 1, rng, is_cumulative=True, drawdown_months=6)
+        # At trough (month 6): 1.6
+        assert abs(result[6] - 1.6) < 0.01
+        # After recovery period: should be above 1.6 (recovering)
+        assert result[66] > 1.68  # 50% of 0.4 gap recovered
+        # But not fully recovered
+        assert result[66] < 2.0
 
     def test_crash_within_horizon(self):
         """Crash month should be within [0, horizon)."""
@@ -236,11 +248,25 @@ class TestCrash:
         assert abs(result[6] - 1.6) < 0.01
 
     def test_permanent_level_shift(self):
-        """After drawdown, path stays at the lower level — no bounce back."""
+        """With recovery_pct=0, path stays at the lower level — no bounce back."""
         path = np.ones(120) * 2.0
         rng = np.random.default_rng(0)
-        result = apply_crash(path, 1.0, 0.20, 1, rng, is_cumulative=True, drawdown_months=6)
+        result = apply_crash(path, 1.0, 0.20, 1, rng, is_cumulative=True,
+                             drawdown_months=6, recovery_pct=0)
         np.testing.assert_allclose(result[6:], 1.6, atol=0.01)
+
+    def test_full_recovery(self):
+        """With recovery_pct=1.0, path fully recovers to pre-crash level."""
+        path = np.ones(120) * 2.0
+        rng = np.random.default_rng(0)
+        result = apply_crash(path, 1.0, 0.20, 1, rng, is_cumulative=True,
+                             drawdown_months=6, recovery_pct=1.0, recovery_months=24)
+        # At trough: 1.6
+        assert abs(result[6] - 1.6) < 0.01
+        # After 24 months of recovery (month 30): should be close to 2.0
+        assert result[30] > 1.85
+        # Much later: essentially back to 2.0
+        assert result[80] > 1.95
 
     def test_drawdown_with_growing_path(self):
         """On a growing path, crash shifts level down but growth continues."""

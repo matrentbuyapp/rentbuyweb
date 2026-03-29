@@ -48,7 +48,7 @@ class TestSensitivity:
         assert "mortgage_rate" in result.axes
         assert "house_price" in result.axes
         assert "down_payment_pct" in result.axes
-        assert "crash_outlook" in result.axes
+        assert "outlook" in result.axes
 
     def test_mortgage_rate_axis_has_points(self, synthetic_data):
         inputs = _make_inputs()
@@ -79,17 +79,17 @@ class TestSensitivity:
         assert 0.20 in dps
         assert 0.30 in dps
 
-    def test_crash_axis(self, synthetic_data):
+    def test_outlook_axis(self, synthetic_data):
         inputs = _make_inputs()
         result = run_sensitivity(inputs, synthetic_data)
-        points = result.axes["crash_outlook"]
+        points = result.axes["outlook"]
         labels = [p.label for p in points]
-        assert "none" in labels
-        assert "very_likely" in labels
-        # Crash setting should produce different outcomes than no-crash
-        none_pt = next(p for p in points if p.label == "none")
-        likely_pt = next(p for p in points if p.label == "very_likely")
-        assert none_pt.buyer_net_worth != likely_pt.buyer_net_worth
+        assert "optimistic" in labels
+        assert "crisis" in labels
+        # Different outlooks should produce different outcomes
+        opt_pt = next(p for p in points if p.label == "optimistic")
+        crisis_pt = next(p for p in points if p.label == "crisis")
+        assert opt_pt.buyer_net_worth != crisis_pt.buyer_net_worth
 
     def test_base_values_populated(self, synthetic_data):
         inputs = _make_inputs()

@@ -75,10 +75,14 @@ def _clone_inputs(inputs: SimulationInput) -> SimulationInput:
 
 
 def _find_breakeven(monthly: list[MonthlySnapshot]) -> int | None:
-    for i, m in enumerate(monthly):
-        if m.buyer_net_worth > m.renter_net_worth:
-            return i
-    return None
+    """Sustained breakeven: when buyer durably pulls ahead through the end."""
+    n = len(monthly)
+    if n == 0 or monthly[-1].buyer_net_worth <= monthly[-1].renter_net_worth:
+        return None
+    for i in range(n - 1, -1, -1):
+        if monthly[i].buyer_net_worth <= monthly[i].renter_net_worth:
+            return i + 1 if i + 1 < n else None
+    return 0  # buyer always ahead
 
 
 def _compute_yearly_scores(monthly: list[MonthlySnapshot]) -> list[float]:
@@ -94,12 +98,24 @@ def _compute_yearly_scores(monthly: list[MonthlySnapshot]) -> list[float]:
 
 
 def _aggregate_score(yearly_scores: list[float]) -> float:
-    """Weighted average emphasizing year 5 (the most common decision horizon)."""
-    weights = {1: 2, 4: 5, 9: 2}  # 0-indexed: year 2, 5, 10
+    """Weighted average emphasizing the mid-point of the horizon.
+
+    Picks three anchor years (20%, 50%, 90% through the horizon) and weights
+    the middle one highest. Adapts to any horizon from 2 to 15 years.
+    """
+    n = len(yearly_scores)
+    if n == 0:
+        return 0.0
+    # Anchor at ~20%, ~50%, ~90% of the horizon (0-indexed)
+    anchors = [
+        (max(0, round(n * 0.2) - 1), 2),   # early
+        (max(0, round(n * 0.5) - 1), 5),   # mid — heaviest weight
+        (max(0, n - 1), 2),                 # final
+    ]
     total_w = 0
     total = 0.0
-    for idx, w in weights.items():
-        if idx < len(yearly_scores):
+    for idx, w in anchors:
+        if idx < n:
             total += yearly_scores[idx] * w
             total_w += w
     return total / total_w if total_w > 0 else 0.0
@@ -109,9 +125,6 @@ def run_trend(
     inputs: SimulationInput,
     data: HistoricalData,
     max_delay_quarters: int = 8,
-    crash_prob: float = 0.15,
-    crash_drop_housing: float = 0.20,
-    crash_drop_stock: float = 0.25,
 ) -> TrendResult:
     """Simulate buying at different delays: now, +3mo, +6mo, ..., +N quarters.
 
@@ -132,18 +145,11 @@ def run_trend(
         v.config.num_simulations = min(v.config.num_simulations, 100)
         v.config.buy_delay_months = delay
 
-        result = run_simulation(
-            v, data,
-            housing_crash_prob=crash_prob,
-            housing_crash_drop=crash_drop_housing,
-            stock_crash_prob=crash_prob,
-            stock_crash_drop=crash_drop_stock,
-        )
+        result = run_simulation(v, data)
 
         yearly = _compute_yearly_scores(result.monthly)
         agg = _aggregate_score(yearly)
 
-        # Find first month of actual ownership
         first_own = result.monthly[delay] if delay < len(result.monthly) else result.monthly[-1]
 
         if q == 0:
@@ -174,9 +180,6 @@ def run_zip_comparison(
     inputs: SimulationInput,
     data: HistoricalData,
     zip_codes: list[str],
-    crash_prob: float = 0.15,
-    crash_drop_housing: float = 0.20,
-    crash_drop_stock: float = 0.25,
 ) -> ZipMapResult:
     """Run simulation for multiple ZIP codes and return comparative scores.
 
@@ -195,13 +198,7 @@ def run_zip_comparison(
         if zdata and zdata.hist_values:
             v.property.house_price = zdata.hist_values[-1]
 
-        result = run_simulation(
-            v, data,
-            housing_crash_prob=crash_prob,
-            housing_crash_drop=crash_drop_housing,
-            stock_crash_prob=crash_prob,
-            stock_crash_drop=crash_drop_stock,
-        )
+        result = run_simulation(v, data)
 
         yearly = _compute_yearly_scores(result.monthly)
         agg = _aggregate_score(yearly)

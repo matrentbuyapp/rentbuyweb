@@ -2,7 +2,7 @@
 
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine,
+  ResponsiveContainer, ReferenceLine, Legend,
 } from "recharts";
 import { MonthlyData } from "@/lib/types";
 import { formatCompact, formatCurrency } from "@/lib/formatters";
@@ -10,22 +10,11 @@ import ChartCard from "./ChartCard";
 
 interface Props {
   monthly: MonthlyData[];
+  breakevenMonth?: number | null;
+  sellMonth?: number | null;
 }
 
-export default function NetWorthChart({ monthly }: Props) {
-  const buyerWinsAtEnd =
-    monthly[monthly.length - 1].buyer_net_worth > monthly[monthly.length - 1].renter_net_worth;
-  let breakeven = -1;
-  if (buyerWinsAtEnd) {
-    for (let i = monthly.length - 1; i >= 0; i--) {
-      if (monthly[i].buyer_net_worth <= monthly[i].renter_net_worth) {
-        breakeven = i + 1;
-        break;
-      }
-    }
-    if (breakeven === -1) breakeven = 0;
-  }
-
+export default function NetWorthChart({ monthly, breakevenMonth, sellMonth }: Props) {
   const data = monthly.map((m, i) => ({
     month: i,
     buyer: Math.round(m.buyer_net_worth),
@@ -47,10 +36,14 @@ export default function NetWorthChart({ monthly }: Props) {
             labelFormatter={(m: number) => `Month ${m + 1}`}
             contentStyle={{ borderRadius: 12, border: "1px solid #e2e8f0", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}
           />
+          <Legend iconType="line" wrapperStyle={{ fontSize: 11, paddingTop: 4 }} />
           <Line type="monotone" dataKey="buyer" stroke="#6366f1" strokeWidth={2.5} dot={false} name="Buyer" />
           <Line type="monotone" dataKey="renter" stroke="#f59e0b" strokeWidth={2.5} dot={false} name="Renter" />
-          {breakeven > 0 && (
-            <ReferenceLine x={breakeven} stroke="#34d399" strokeDasharray="4 4" label={{ value: "Breakeven", fontSize: 10, fill: "#10b981" }} />
+          {breakevenMonth != null && breakevenMonth >= 0 && (
+            <ReferenceLine x={breakevenMonth} stroke="#34d399" strokeDasharray="4 4" label={{ value: "Breakeven", fontSize: 10, fill: "#10b981" }} />
+          )}
+          {sellMonth != null && (
+            <ReferenceLine x={sellMonth} stroke="#ef4444" strokeDasharray="4 4" label={{ value: "Sell", fontSize: 10, fill: "#ef4444" }} />
           )}
         </LineChart>
       </ResponsiveContainer>

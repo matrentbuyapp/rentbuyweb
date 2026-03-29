@@ -18,9 +18,25 @@ export interface SummaryRequest {
   term_years?: number;
   credit_quality?: string;
   years?: number;
+  stay_years?: number | null;
   num_simulations?: number;
   buy_delay_months?: number;
-  crash_outlook?: string;
+  outlook_preset?: string;
+  // Pro outlook overrides
+  volatility_scale?: number | null;
+  housing_crash_prob?: number | null;
+  housing_crash_drop?: number | null;
+  housing_drawdown_months?: number | null;
+  housing_recovery_pct?: number | null;
+  housing_recovery_months?: number | null;
+  stock_crash_prob?: number | null;
+  stock_crash_drop?: number | null;
+  stock_drawdown_months?: number | null;
+  stock_recovery_pct?: number | null;
+  stock_recovery_months?: number | null;
+  // Pro rate forecast overrides
+  rate_target?: number | null;
+  rate_volatility_scale?: number | null;
 }
 
 export interface MonthlyData {
@@ -46,13 +62,70 @@ export interface MonthlyData {
   cumulative_rent_cost: number;
 }
 
+export interface PercentileBands {
+  p10: number[];
+  p25: number[];
+  p50: number[];
+  p75: number[];
+  p90: number[];
+}
+
+export interface Percentiles {
+  buyer_net_worth: PercentileBands;
+  renter_net_worth: PercentileBands;
+  home_value: PercentileBands;
+  buyer_equity: PercentileBands;
+  mortgage_rate: PercentileBands;
+}
+
+export interface Warning {
+  code: string;
+  severity?: string;
+  message: string;
+}
+
 export interface SummaryResponse {
   house_price: number;
   mortgage_rate: number;
   property_tax_rate: number;
   avg_buyer_net_worth: number;
   avg_renter_net_worth: number;
+  buy_score: number;
+  verdict: string;
+  breakeven_month: number | null;
+  crossing_count: number;
   monthly: MonthlyData[];
+  percentiles: Percentiles;
+  warnings?: Warning[];
+}
+
+// --- PRO: Saved Scenarios & Alerts ---
+
+export interface Scenario {
+  id: string;
+  name: string;
+  inputs: SummaryRequest;
+  response: SummaryResponse | null;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ScenarioList {
+  scenarios: Scenario[];
+}
+
+export interface Alert {
+  id: string;
+  scenario_id: string;
+  alert_type: "threshold" | "shift" | "digest";
+  enabled: boolean;
+  config: { shift_months?: number } | null;
+  last_triggered_at: number | null;
+  created_at: number;
+}
+
+export interface AlertList {
+  alerts: Alert[];
 }
 
 export interface FormData {
@@ -75,7 +148,20 @@ export interface FormData {
   term_years: number;
   credit_quality: string;
   years: number;
+  stay_years: number;
   num_simulations: number;
   buy_delay_months: number;
-  crash_outlook: string;
+  outlook_preset: string;
+  // Pro crash overrides (null = use preset defaults)
+  housing_crash_prob: number | null;
+  housing_crash_drop: number | null;
+  housing_recovery_pct: number | null;
+  housing_recovery_months: number | null;
+  stock_crash_prob: number | null;
+  stock_crash_drop: number | null;
+  stock_recovery_pct: number | null;
+  stock_recovery_months: number | null;
+  // Pro rate forecast overrides
+  rate_target: string;
+  rate_volatility_scale: string;
 }

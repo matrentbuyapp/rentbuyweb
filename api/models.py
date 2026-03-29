@@ -12,7 +12,7 @@ class UserProfile:
     yearly_income: float = 0.0
     filing_status: str = "single"  # single, married_joint, head_of_household
     other_deductions: float = 0.0
-    risk_appetite: str = "moderate"  # conservative, moderate, aggressive
+    risk_appetite: str = "moderate"  # savings_only, conservative, moderate, aggressive
 
 
 @dataclass
@@ -36,7 +36,8 @@ class MortgageParams:
 
 @dataclass
 class SimulationConfig:
-    years: int = 10
+    years: int = 10               # total planning horizon
+    stay_years: Optional[int] = None  # how long you'd own before selling (None = same as years)
     num_simulations: int = 500
     buy_delay_months: int = 0
 
@@ -55,10 +56,18 @@ class MarketOutlook:
     housing_crash_prob: float = 0.0
     housing_crash_drop: float = 0.0
     housing_drawdown_months: int = 12
+    housing_recovery_pct: float = 0.5     # fraction of crash recovered (0=permanent, 1=full V-shape)
+    housing_recovery_months: int = 60     # months to reach recovery_pct of the gap (default 5yr)
     stock_crash_prob: float = 0.0
     stock_crash_drop: float = 0.0
     stock_drawdown_months: int = 6
+    stock_recovery_pct: float = 0.7       # stocks recover faster than housing
+    stock_recovery_months: int = 36       # default 3yr
     crash_horizon_months: int = 36
+
+    # Rate forecast overrides (Pro tier)
+    rate_target: Optional[float] = None     # target rate as decimal (0.055 = 5.5%). Replaces 20y avg as mean-reversion anchor
+    rate_volatility_scale: float = 1.0      # scale noise on rate path (1.0 = historical, 0.5 = calm, 2.0 = turbulent)
 
     @staticmethod
     def from_preset(name: str) -> "MarketOutlook":
@@ -87,8 +96,10 @@ class MarketOutlook:
                 volatility_scale=1.6,
                 housing_crash_prob=0.50, housing_crash_drop=0.30,
                 housing_drawdown_months=18,
+                housing_recovery_pct=0.3, housing_recovery_months=84,  # slow recovery in crisis
                 stock_crash_prob=0.50, stock_crash_drop=0.35,
                 stock_drawdown_months=9,
+                stock_recovery_pct=0.5, stock_recovery_months=48,
             ),
         }
         return presets.get(name, presets["historical"])

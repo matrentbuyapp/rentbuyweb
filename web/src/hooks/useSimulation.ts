@@ -20,6 +20,16 @@ export function useSimulation() {
     []
   );
 
+  const scrollToResults = useCallback(() => {
+    setTimeout(() => {
+      const el = resultsRef.current;
+      if (!el) return;
+      const headerHeight = 60;
+      const top = el.getBoundingClientRect().top + window.scrollY - headerHeight;
+      window.scrollTo({ top, behavior: "smooth" });
+    }, 100);
+  }, []);
+
   const runSimulation = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -27,20 +37,14 @@ export function useSimulation() {
       const res = await postSummary(formData);
       setResult(res);
       setHasRun(true);
-      // Scroll to results, offset by sticky header height
-      setTimeout(() => {
-        const el = resultsRef.current;
-        if (!el) return;
-        const headerHeight = 60; // sticky header ~56px + margin
-        const top = el.getBoundingClientRect().top + window.scrollY - headerHeight;
-        window.scrollTo({ top, behavior: "smooth" });
-      }, 100);
+      scrollToResults();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
+      scrollToResults();
     } finally {
       setLoading(false);
     }
-  }, [formData]);
+  }, [formData, scrollToResults]);
 
-  return { formData, updateField, result, loading, error, hasRun, runSimulation, resultsRef };
+  return { formData, updateField, result, setResult, loading, error, hasRun, runSimulation, resultsRef };
 }

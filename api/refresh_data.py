@@ -353,11 +353,82 @@ def refresh_geo_and_tax():
 # Main
 # ---------------------------------------------------------------------------
 
+def export_zip_prices():
+    """Export median home prices + tax rates for all ZIPs to a static JSON file.
+
+    Output: api/data/zip_prices.json (~500KB raw, ~150KB gzipped)
+    Used by the frontend for instant ZIP price lookups without hitting the API.
+    """
+    print("=== Exporting ZIP prices ===")
+    conn = get_connection()
+
+    rows = conn.execute("SELECT zip_code, monthly_values FROM zip_history").fetchall()
+    conn.close()
+
+    from data_store import get_property_tax_rate_cached
+
+    zips = {}
+    prices = []
+    for row in rows:
+        data = json.loads(row["monthly_values"])
+        if not data:
+            continue
+        price = data[-1]["value"]
+        if not price or price <= 0:
+            continue
+
+        zip_code = row["zip_code"]
+        price_rounded = round(price)
+        prices.append(price_rounded)
+
+        try:
+            tax_rate = round(get_property_tax_rate_cached(zip_code), 4)
+        except Exception:
+            tax_rate = None
+
+        entry = {"price": price_rounded}
+        if tax_rate is not None and tax_rate != 0.009:  # skip default fallback
+            entry["tax_rate"] = tax_rate
+        zips[zip_code] = entry
+
+    prices.sort()
+    national_median = prices[len(prices) // 2] if prices else 277000
+
+    output = {
+        "national_median": national_median,
+        "updated_at": time.strftime("%Y-%m-%d"),
+        "zips": zips,
+    }
+
+    out_path = os.path.join(DATA_DIR, "zip_prices.json")
+    with open(out_path, "w") as f:
+        json.dump(output, f, separators=(",", ":"))
+
+    size_kb = os.path.getsize(out_path) / 1024
+    print(f"  Wrote {len(zips)} ZIPs to {out_path} ({size_kb:.0f} KB)")
+    print("  Done.\n")
+
+
+def run_post_refresh_notifications():
+    """Re-run saved scenarios with alerts, detect diffs, send notifications."""
+    try:
+        from notifications import run_post_refresh_check
+        print("=== Running post-refresh notification check ===")
+        run_post_refresh_check()
+        print("  Done.\n")
+    except Exception as e:
+        print(f"  [WARN] Post-refresh notification check failed: {e}")
+
+
 def refresh_all():
     init_db()
     refresh_fred()
     refresh_zillow()
     refresh_geo_and_tax()
+    export_zip_prices()
+
+    # Post-refresh: check saved scenarios for alert-worthy changes
+    run_post_refresh_notifications()
 
     # Print DB size
     db_size = os.path.getsize(DB_PATH) / (1024 * 1024)
@@ -376,8 +447,16 @@ if __name__ == "__main__":
     elif "--zillow-only" in sys.argv:
         init_db()
         refresh_zillow()
+        export_zip_prices()
     elif "--geo-only" in sys.argv:
         init_db()
         refresh_geo_and_tax()
+    elif "--zip-prices" in sys.argv:
+        init_db()
+        export_zip_prices()
     else:
         refresh_all()
+
+    # Run notification check after any refresh type
+    if "--skip-notifications" not in sys.argv:
+        run_post_refresh_notifications()
