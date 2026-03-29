@@ -43,6 +43,8 @@ export function formToRequest(form: FormData): SummaryRequest {
     stock_crash_drop: form.stock_crash_drop,
     stock_recovery_pct: form.stock_recovery_pct,
     stock_recovery_months: form.stock_recovery_months,
+    rate_target: form.rate_target ? Number(form.rate_target) / 100 : null,
+    rate_volatility_scale: form.rate_volatility_scale !== "1.0" ? Number(form.rate_volatility_scale) : null,
   };
 }
 

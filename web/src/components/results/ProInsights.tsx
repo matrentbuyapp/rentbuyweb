@@ -185,7 +185,6 @@ export default function ProInsights({ result, isPro }: Props) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   if (isPro) {
-    // TODO: render actual pro content from API responses
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
@@ -194,9 +193,10 @@ export default function ProInsights({ result, isPro }: Props) {
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           {PRO_FEATURES.map((f) => (
-            <div
+            <a
               key={f.id}
-              className={`rounded-2xl border bg-gradient-to-br p-5 ${ACCENT[f.id]}`}
+              href={`/insights#${f.id}`}
+              className={`rounded-2xl border bg-gradient-to-br p-5 card-hover block ${ACCENT[f.id]}`}
             >
               <div className="flex items-start gap-3">
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${ICON_BG[f.id]}`}>
@@ -205,10 +205,9 @@ export default function ProInsights({ result, isPro }: Props) {
                 <div>
                   <h3 className="text-sm font-semibold text-gray-700">{f.title}</h3>
                   <p className="text-xs text-gray-400 mt-1">{f.description}</p>
-                  <p className="text-xs text-gray-400 mt-3 italic">Coming soon</p>
                 </div>
               </div>
-            </div>
+            </a>
           ))}
         </div>
       </div>
@@ -273,6 +272,14 @@ export default function ProInsights({ result, isPro }: Props) {
             </div>
           );
         })}
+      </div>
+      <div className="text-center mt-4">
+        <a
+          href="/insights"
+          className="text-xs font-medium text-indigo-500 hover:text-indigo-600 transition-colors"
+        >
+          See all Pro features &rarr;
+        </a>
       </div>
     </div>
   );

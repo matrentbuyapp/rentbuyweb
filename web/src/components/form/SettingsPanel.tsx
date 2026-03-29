@@ -233,41 +233,27 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
         {/* PRO: rate forecast overrides */}
         <ProGate isPro={pro} label="Custom rate forecast target and volatility">
           <div className="pt-2 border-t border-gray-100 grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">
-                Rate Target
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  value={formData.mortgage_rate ? "" : ""}
-                  placeholder="Auto (20y avg)"
-                  className="rounded-xl border border-gray-200 bg-white/80 px-3 py-2.5 text-sm w-28
-                    focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 outline-none transition-all
-                    placeholder:text-gray-300 pr-8"
-                  onChange={() => {}}
-                />
-                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">%</span>
-              </div>
-              <p className="text-[11px] text-gray-400 mt-1">Where rates will settle long-term</p>
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">
-                Rate Volatility
-              </label>
-              <SelectField
-                label=""
-                value="1.0"
-                onChange={() => {}}
-                options={[
-                  { value: "0.5", label: "Calm (0.5\u00d7)" },
-                  { value: "1.0", label: "Normal (1\u00d7)" },
-                  { value: "1.5", label: "Choppy (1.5\u00d7)" },
-                  { value: "2.0", label: "Turbulent (2\u00d7)" },
-                ]}
-                hint="How much rates bounce around the target"
-              />
-            </div>
+            <InputField
+              label="Rate Target"
+              value={formData.rate_target}
+              onChange={(v) => updateField("rate_target", v)}
+              suffix="%"
+              placeholder="Auto (20y avg)"
+              hint="Where rates will settle long-term"
+              compact
+            />
+            <SelectField
+              label="Rate Volatility"
+              value={formData.rate_volatility_scale}
+              onChange={(v) => updateField("rate_volatility_scale", v)}
+              options={[
+                { value: "0.5", label: "Calm (0.5\u00d7)" },
+                { value: "1.0", label: "Normal (1\u00d7)" },
+                { value: "1.5", label: "Choppy (1.5\u00d7)" },
+                { value: "2.0", label: "Turbulent (2\u00d7)" },
+              ]}
+              hint="How much rates bounce around the target"
+            />
           </div>
         </ProGate>
       </Accordion>

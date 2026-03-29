@@ -32,4 +32,6 @@ export const DEFAULT_FORM_VALUES: FormData = {
   stock_crash_drop: null,
   stock_recovery_pct: null,
   stock_recovery_months: null,
+  rate_target: "",
+  rate_volatility_scale: "1.0",
 };

@@ -3,7 +3,8 @@
 import { useState, useCallback, useRef } from "react";
 import { FormData, SummaryResponse } from "@/lib/types";
 import { DEFAULT_FORM_VALUES } from "@/lib/defaults";
-import { postSummary } from "@/lib/api";
+import { postSummary, formToRequest } from "@/lib/api";
+import { storeResult } from "@/lib/resultStore";
 
 export function useSimulation() {
   const [formData, setFormData] = useState<FormData>(DEFAULT_FORM_VALUES);
@@ -37,6 +38,7 @@ export function useSimulation() {
       const res = await postSummary(formData);
       setResult(res);
       setHasRun(true);
+      storeResult(res, formToRequest(formData));
       scrollToResults();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
