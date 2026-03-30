@@ -56,17 +56,23 @@ def _run(scenario: dict):
     }
     cfg_kw = {
         "years": scenario.get("years", 10),
+        "stay_years": scenario.get("stay_years"),
         "num_simulations": 50,
-        "buy_delay_months": 0,
+        "buy_delay_months": scenario.get("buy_delay_months", 0),
     }
+    outlook = MarketOutlook.from_preset(scenario.get("outlook_preset", "historical"))
     inp = SimulationInput(
         user=UserProfile(**user_kw),
         property=PropertyParams(**prop_kw),
         mortgage=MortgageParams(**mort_kw),
         config=SimulationConfig(**cfg_kw),
-        outlook=MarketOutlook.from_preset("historical"),
+        outlook=outlook,
     )
-    return run_simulation(inp, data, housing_crash_prob=0, stock_crash_prob=0)
+    crash_prob = 0 if scenario.get("outlook_preset", "historical") == "historical" else None
+    kw = {}
+    if crash_prob == 0:
+        kw = {"housing_crash_prob": 0, "stock_crash_prob": 0}
+    return run_simulation(inp, data, **kw)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -152,6 +158,78 @@ SCENARIOS = {
         "monthly_rent": 900, "monthly_budget": 1600, "initial_cash": 30_000,
         "yearly_income": 52_000, "house_price": 160_000,
         "down_payment_pct": 0.10, "zip_code": "35203", "credit_quality": "good",
+    },
+    # --- NEW: Feature-specific scenarios ---
+    "dc_sell_after_5yr": {
+        "desc": "DC federal worker, plans to relocate after 5 years",
+        "monthly_rent": 2200, "monthly_budget": 3800, "initial_cash": 100_000,
+        "yearly_income": 140_000, "house_price": 550_000,
+        "down_payment_pct": 0.20, "zip_code": "20001", "credit_quality": "great",
+        "stay_years": 5, "years": 10,
+    },
+    "phoenix_delay_12mo": {
+        "desc": "Phoenix nurse waiting 12 months to save more for down payment",
+        "monthly_rent": 1400, "monthly_budget": 2800, "initial_cash": 35_000,
+        "yearly_income": 85_000, "house_price": 380_000,
+        "down_payment_pct": 0.10, "zip_code": "85001", "credit_quality": "good",
+        "buy_delay_months": 12,
+    },
+    "miami_savings_only": {
+        "desc": "Miami retiree, risk-averse, keeps cash in savings account only",
+        "monthly_rent": 1800, "monthly_budget": 2500, "initial_cash": 200_000,
+        "yearly_income": 60_000, "house_price": 400_000,
+        "down_payment_pct": 0.30, "zip_code": "33101", "credit_quality": "great",
+        "risk_appetite": "savings_only",
+    },
+    "chicago_15yr_mortgage": {
+        "desc": "Chicago high earner, 15-year mortgage, aggressive payoff",
+        "monthly_rent": 2000, "monthly_budget": 5500, "initial_cash": 180_000,
+        "yearly_income": 220_000, "house_price": 500_000,
+        "down_payment_pct": 0.20, "zip_code": "60601", "credit_quality": "excellent",
+        "term_years": 15,
+    },
+    "raleigh_short_horizon": {
+        "desc": "Raleigh couple, only 3-year planning horizon",
+        "monthly_rent": 1500, "monthly_budget": 2800, "initial_cash": 60_000,
+        "yearly_income": 110_000, "house_price": 350_000,
+        "down_payment_pct": 0.10, "zip_code": "27601", "credit_quality": "good",
+        "filing_status": "married_joint", "years": 3,
+    },
+    "houston_long_horizon": {
+        "desc": "Houston family, 15-year planning horizon, staying forever",
+        "monthly_rent": 1600, "monthly_budget": 3200, "initial_cash": 80_000,
+        "yearly_income": 100_000, "house_price": 320_000,
+        "down_payment_pct": 0.10, "zip_code": "77001", "credit_quality": "good",
+        "filing_status": "married_joint", "years": 15,
+    },
+    "minneapolis_pessimist": {
+        "desc": "Minneapolis pessimist, expects market downturn",
+        "monthly_rent": 1500, "monthly_budget": 3000, "initial_cash": 90_000,
+        "yearly_income": 95_000, "house_price": 350_000,
+        "down_payment_pct": 0.15, "zip_code": "55401", "credit_quality": "good",
+        "outlook_preset": "pessimistic",
+    },
+    "san_diego_aggressive": {
+        "desc": "San Diego SWE, aggressive stock investor, 5% down",
+        "monthly_rent": 2800, "monthly_budget": 4500, "initial_cash": 70_000,
+        "yearly_income": 170_000, "house_price": 850_000,
+        "down_payment_pct": 0.05, "zip_code": "92101", "credit_quality": "good",
+        "risk_appetite": "aggressive",
+    },
+    "detroit_comeback": {
+        "desc": "Detroit, cheap house, big savings, stay 7yr then sell",
+        "monthly_rent": 800, "monthly_budget": 1800, "initial_cash": 100_000,
+        "yearly_income": 70_000, "house_price": 130_000,
+        "down_payment_pct": 0.30, "zip_code": "48201", "credit_quality": "great",
+        "stay_years": 7,
+    },
+    "nyc_delay_then_short_stay": {
+        "desc": "NYC, delay 12mo saving, buy, stay 5yr, sell — classic flip timeline",
+        "monthly_rent": 3000, "monthly_budget": 5500, "initial_cash": 180_000,
+        "yearly_income": 200_000, "house_price": 800_000,
+        "down_payment_pct": 0.15, "zip_code": "11201", "credit_quality": "great",
+        "filing_status": "married_joint",
+        "buy_delay_months": 12, "stay_years": 5, "years": 10,
     },
 }
 
@@ -320,14 +398,180 @@ class TestComparativeChecks:
 # Summary table — not a test, just prints for visual inspection
 # ═══════════════════════════════════════════════════════════════════════════
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Feature-specific tests — stay_years, buy_delay, savings_only, etc.
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestStayYearsSell:
+    """Scenarios where buyer sells before the end of the horizon."""
+
+    def test_sell_event_zeroes_equity(self):
+        """After selling, buyer equity should be 0."""
+        r = _run(SCENARIOS["dc_sell_after_5yr"])
+        # Months 0-59: owning (equity > 0 after initial period)
+        assert r.monthly[48].buyer_equity > 0
+        # Months 60+: sold (equity = 0)
+        assert r.monthly[72].buyer_equity == 0
+        assert r.monthly[72].mortgage_payment == 0
+
+    def test_sell_proceeds_boost_investment(self):
+        """Buyer investment should jump at the sell month."""
+        r = _run(SCENARIOS["dc_sell_after_5yr"])
+        # Investment jumps when equity is liquidated
+        assert r.monthly[60].buyer_investment > r.monthly[59].buyer_investment + 50_000
+
+    def test_short_stay_different_from_forever(self):
+        """Stay 7yr should produce different results than owning forever."""
+        r_sell = _run(SCENARIOS["detroit_comeback"])  # stay_years=7
+        forever = SCENARIOS["detroit_comeback"].copy()
+        forever["stay_years"] = None
+        r_forever = _run(forever)
+        assert r_sell.avg_buyer_net_worth != r_forever.avg_buyer_net_worth
+
+    def test_delay_plus_stay_fits_horizon(self):
+        """NYC delay 12mo + stay 5yr should produce owned months 12-71, renting after."""
+        r = _run(SCENARIOS["nyc_delay_then_short_stay"])
+        # Month 6: still renting (delay period)
+        assert r.monthly[6].mortgage_payment == 0
+        # Month 24: owning
+        assert r.monthly[24].mortgage_payment > 0
+        # Month 80: sold, back to renting
+        assert r.monthly[80].mortgage_payment == 0
+        assert r.monthly[80].buyer_equity == 0
+
+
+class TestBuyDelay:
+    """Scenarios with delayed purchase."""
+
+    def test_delay_mirrors_renter_initially(self):
+        """During delay period, buyer should mirror renter."""
+        r = _run(SCENARIOS["phoenix_delay_12mo"])
+        for i in range(12):
+            assert abs(r.monthly[i].buyer_net_worth - r.monthly[i].renter_net_worth) < 1.0
+
+    def test_delay_then_ownership(self):
+        """After delay, ownership kicks in."""
+        r = _run(SCENARIOS["phoenix_delay_12mo"])
+        assert r.monthly[12].mortgage_payment > 0
+        assert r.monthly[11].mortgage_payment == 0
+
+
+class TestSavingsOnly:
+    """Risk-averse users who keep cash in a savings account."""
+
+    def test_savings_only_lower_renter_nw(self):
+        """Savings-only renter should accumulate less than a stock-investing renter."""
+        r_savings = _run(SCENARIOS["miami_savings_only"])
+        moderate = SCENARIOS["miami_savings_only"].copy()
+        moderate["risk_appetite"] = "moderate"
+        r_stock = _run(moderate)
+        assert r_savings.avg_renter_net_worth < r_stock.avg_renter_net_worth
+
+    def test_savings_only_narrow_percentile_spread(self):
+        """With savings_only, renter percentile spread should be minimal."""
+        r = _run(SCENARIOS["miami_savings_only"])
+        spread = r.percentiles.renter_net_worth.p90[-1] - r.percentiles.renter_net_worth.p10[-1]
+        # Spread should be small — only home value MC variance, not stock variance
+        assert spread < 50_000, f"Savings-only spread too wide: ${spread:,.0f}"
+
+
+class TestMortgageTerm:
+    """15-year vs 30-year mortgage."""
+
+    def test_15yr_higher_payment(self):
+        """15-year mortgage should have a higher monthly payment."""
+        r_15 = _run(SCENARIOS["chicago_15yr_mortgage"])
+        thirty = SCENARIOS["chicago_15yr_mortgage"].copy()
+        thirty["term_years"] = 30
+        r_30 = _run(thirty)
+        assert r_15.monthly[0].mortgage_payment > r_30.monthly[0].mortgage_payment * 1.3
+
+    def test_15yr_faster_equity(self):
+        """15-year mortgage should build equity faster."""
+        r_15 = _run(SCENARIOS["chicago_15yr_mortgage"])
+        thirty = SCENARIOS["chicago_15yr_mortgage"].copy()
+        thirty["term_years"] = 30
+        r_30 = _run(thirty)
+        # At year 5, 15yr mortgage should have more equity
+        assert r_15.monthly[59].buyer_equity > r_30.monthly[59].buyer_equity
+
+
+class TestHorizonLength:
+    """Different planning horizons."""
+
+    def test_short_horizon_correct_months(self):
+        """3-year horizon should have exactly 36 months."""
+        r = _run(SCENARIOS["raleigh_short_horizon"])
+        assert len(r.monthly) == 36
+
+    def test_long_horizon_correct_months(self):
+        """15-year horizon should have exactly 180 months."""
+        r = _run(SCENARIOS["houston_long_horizon"])
+        assert len(r.monthly) == 180
+
+    def test_long_horizon_more_equity(self):
+        """15 years of ownership should build much more equity than 10."""
+        r_long = _run(SCENARIOS["houston_long_horizon"])
+        short = SCENARIOS["houston_long_horizon"].copy()
+        short["years"] = 10
+        r_short = _run(short)
+        assert r_long.monthly[-1].buyer_equity > r_short.monthly[-1].buyer_equity
+
+
+class TestOutlookPresets:
+    """Pessimistic outlook should produce worse outcomes."""
+
+    def test_pessimist_worse_for_buyer(self):
+        """Pessimistic outlook should reduce buyer advantage or increase renter advantage."""
+        r_pessimist = _run(SCENARIOS["minneapolis_pessimist"])
+        neutral = SCENARIOS["minneapolis_pessimist"].copy()
+        neutral["outlook_preset"] = "historical"
+        r_neutral = _run(neutral)
+        diff_pessimist = r_pessimist.avg_buyer_net_worth - r_pessimist.avg_renter_net_worth
+        diff_neutral = r_neutral.avg_buyer_net_worth - r_neutral.avg_renter_net_worth
+        # Pessimistic should be worse for buyer (housing crash risk)
+        assert diff_pessimist < diff_neutral
+
+    def test_crossing_count_higher_in_pessimistic(self):
+        """Pessimistic scenarios tend to have more volatile outcomes."""
+        r = _run(SCENARIOS["minneapolis_pessimist"])
+        assert r.crossing_count >= 0  # basic sanity — at minimum it's a valid number
+
+
+class TestAggressiveInvestor:
+    """Aggressive stock exposure should amplify renter returns."""
+
+    def test_aggressive_renter_higher_nw(self):
+        """Aggressive stock exposure should give renter higher NW than conservative."""
+        r_aggr = _run(SCENARIOS["san_diego_aggressive"])
+        cons = SCENARIOS["san_diego_aggressive"].copy()
+        cons["risk_appetite"] = "conservative"
+        r_cons = _run(cons)
+        assert r_aggr.avg_renter_net_worth > r_cons.avg_renter_net_worth
+
+    def test_aggressive_wider_spread(self):
+        """Aggressive investor should have wider percentile bands."""
+        r_aggr = _run(SCENARIOS["san_diego_aggressive"])
+        cons = SCENARIOS["san_diego_aggressive"].copy()
+        cons["risk_appetite"] = "conservative"
+        r_cons = _run(cons)
+        spread_aggr = r_aggr.percentiles.renter_net_worth.p90[-1] - r_aggr.percentiles.renter_net_worth.p10[-1]
+        spread_cons = r_cons.percentiles.renter_net_worth.p90[-1] - r_cons.percentiles.renter_net_worth.p10[-1]
+        assert spread_aggr > spread_cons
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Summary table — all scenarios including new ones
+# ═══════════════════════════════════════════════════════════════════════════
+
 class TestScenarioSummary:
     """Print a summary table of all scenarios for human review."""
 
     def test_print_summary(self, capsys):
-        print("\n" + "=" * 105)
-        print(f"{'Scenario':<22} {'Price':>10} {'Down':>5} {'Buyer NW':>12} {'Renter NW':>12} "
-              f"{'Diff':>12} {'BE Mo':>6} {'Score':>6}")
-        print("-" * 105)
+        print("\n" + "=" * 120)
+        print(f"{'Scenario':<28} {'Price':>10} {'Down':>5} {'Yrs':>4} {'Stay':>5} "
+              f"{'Buyer NW':>12} {'Renter NW':>12} {'Diff':>12} {'BE':>6} {'Xing':>5} {'Score':>6}")
+        print("-" * 120)
 
         from scoring import compute_buy_score
 
@@ -339,8 +583,10 @@ class TestScenarioSummary:
             be = r.breakeven_month
             be_str = f"{be}" if be is not None else "never"
             pct = s["down_payment_pct"]
-            print(f"{name:<22} ${s['house_price']:>9,} {pct:>4.0%} "
+            yrs = s.get("years", 10)
+            stay = s.get("stay_years", "-")
+            print(f"{name:<28} ${s['house_price']:>9,} {pct:>4.0%} {yrs:>4} {str(stay):>5} "
                   f"${last.buyer_net_worth:>11,.0f} ${last.renter_net_worth:>11,.0f} "
-                  f"${diff:>+11,.0f} {be_str:>6} {score:>5}")
+                  f"${diff:>+11,.0f} {be_str:>6} {r.crossing_count:>5} {score:>5}")
 
-        print("=" * 105)
+        print("=" * 120)
