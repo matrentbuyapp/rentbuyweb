@@ -1,10 +1,30 @@
 "use client";
 
-import { useState, useCallback, useRef } from "react";
+import { useState, useCallback, useRef, useEffect } from "react";
 import { FormData, SummaryResponse } from "@/lib/types";
 import { DEFAULT_FORM_VALUES } from "@/lib/defaults";
 import { postSummary, formToRequest } from "@/lib/api";
-import { storeResult } from "@/lib/resultStore";
+import { storeResult, loadResult } from "@/lib/resultStore";
+
+const FORM_KEY = "rent-buy-form";
+
+function loadFormData(): FormData {
+  try {
+    const raw = localStorage.getItem(FORM_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      // Merge with defaults to pick up any new fields added since last save
+      return { ...DEFAULT_FORM_VALUES, ...parsed };
+    }
+  } catch {}
+  return DEFAULT_FORM_VALUES;
+}
+
+function saveFormData(data: FormData): void {
+  try {
+    localStorage.setItem(FORM_KEY, JSON.stringify(data));
+  } catch {}
+}
 
 export function useSimulation() {
   const [formData, setFormData] = useState<FormData>(DEFAULT_FORM_VALUES);
@@ -12,22 +32,34 @@ export function useSimulation() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasRun, setHasRun] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
   const resultsRef = useRef<HTMLDivElement>(null);
+
+  // Hydrate form + result from localStorage on mount
+  useEffect(() => {
+    setFormData(loadFormData());
+    const stored = loadResult();
+    if (stored) {
+      setResult(stored.result);
+      setHasRun(true);
+    }
+  }, []);
 
   const updateField = useCallback(
     <K extends keyof FormData>(field: K, value: FormData[K]) => {
-      setFormData((prev) => ({ ...prev, [field]: value }));
+      setFormData((prev) => {
+        const next = { ...prev, [field]: value };
+        saveFormData(next);
+        setIsDirty(true);
+        return next;
+      });
     },
     []
   );
 
   const scrollToResults = useCallback(() => {
     setTimeout(() => {
-      const el = resultsRef.current;
-      if (!el) return;
-      const headerHeight = 60;
-      const top = el.getBoundingClientRect().top + window.scrollY - headerHeight;
-      window.scrollTo({ top, behavior: "smooth" });
+      resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 100);
   }, []);
 
@@ -38,6 +70,7 @@ export function useSimulation() {
       const res = await postSummary(formData);
       setResult(res);
       setHasRun(true);
+      setIsDirty(false);
       storeResult(res, formToRequest(formData));
       scrollToResults();
     } catch (e) {
@@ -48,5 +81,18 @@ export function useSimulation() {
     }
   }, [formData, scrollToResults]);
 
-  return { formData, updateField, result, setResult, loading, error, hasRun, runSimulation, resultsRef };
+  const resetAll = useCallback(() => {
+    setFormData(DEFAULT_FORM_VALUES);
+    saveFormData(DEFAULT_FORM_VALUES);
+    setResult(null);
+    setHasRun(false);
+    setIsDirty(false);
+    setError(null);
+    try {
+      localStorage.removeItem("rent-buy-session");
+      localStorage.removeItem("rent-buy-form");
+    } catch {}
+  }, []);
+
+  return { formData, updateField, resetAll, result, setResult, loading, error, hasRun, isDirty, runSimulation, resultsRef };
 }

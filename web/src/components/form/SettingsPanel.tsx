@@ -3,7 +3,6 @@
 import Accordion from "@/components/ui/Accordion";
 import InputField from "@/components/ui/InputField";
 import SelectField from "@/components/ui/SelectField";
-import ProGate from "@/components/ui/ProGate";
 import ProBadge from "@/components/ui/ProBadge";
 import CrashSlider from "./CrashSlider";
 import { FormData } from "@/lib/types";
@@ -25,6 +24,15 @@ interface Props {
   nationalMedian?: number;
   onZipFocus?: () => void;
   lastHousePrice?: number | null;
+}
+
+/** Small one-liner showing what Pro adds to this section */
+function ProHint({ text }: { text: string }) {
+  return (
+    <p className="text-[10px] text-gray-400 mt-2 flex items-center gap-1">
+      <ProBadge /> {text}
+    </p>
+  );
 }
 
 export default function SettingsPanel({ formData, updateField, hasRun, isPro, zipLookup, nationalMedian, onZipFocus, lastHousePrice }: Props) {
@@ -101,7 +109,6 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
               ? `Defaults to ZIP median: $${zipInfo.price.toLocaleString()}`
               : `Defaults to national median: $${(nationalMedian ?? 277000).toLocaleString()}`}
         />
-        {/* stay_years — free tier */}
         <div>
           <label className="block text-xs font-medium text-gray-500 mb-1.5">
             How long do you plan to own?
@@ -123,69 +130,15 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
           </div>
           <p className="text-[11px] text-gray-400 mt-0.5">{stayLabel}</p>
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <InputField
-            label="Down Payment"
-            value={formData.down_payment_pct}
-            onChange={(v) => updateField("down_payment_pct", Number(v) || 0)}
-            suffix="%"
-            hint="8% is typical for first-time buyers"
-            compact
-          />
-          {/* buy_delay_months — PRO */}
-          <ProGate isPro={pro} label="Delay purchase timing">
-            <div>
-              <label className="block text-xs font-medium text-gray-500 mb-1.5">
-                When to Buy
-              </label>
-              <input
-                type="range"
-                min={0}
-                max={5}
-                step={1}
-                value={delayIdx >= 0 ? delayIdx : 0}
-                onChange={(e) => handleDelayChange(DELAY_VALUES[Number(e.target.value)])}
-                className="w-full mt-1"
-                style={{ background: "linear-gradient(90deg, #c7d2fe, #e0e7ff)" }}
-              />
-              <div className="flex justify-between mt-1">
-                <span className={`text-[10px] ${delayIdx === 0 ? "font-semibold text-indigo-600" : "text-gray-400"}`}>Now</span>
-                <span className={`text-[10px] ${delayIdx === 5 ? "font-semibold text-indigo-600" : "text-gray-400"}`}>2 yr</span>
-              </div>
-              <p className="text-[11px] text-gray-400 mt-0.5">
-                {formData.buy_delay_months === 0
-                  ? "Buy right away"
-                  : `Rent for ${formData.buy_delay_months} months first, then buy`}
-              </p>
-            </div>
-          </ProGate>
-        </div>
-        {/* PRO: planning horizon */}
-        <ProGate isPro={pro} label="Custom planning horizon (2–15 years)">
-          <div className="pt-2 border-t border-gray-100">
-            <label className="block text-xs font-medium text-gray-500 mb-1.5">
-              Planning Horizon
-            </label>
-            <input
-              type="range"
-              min={2}
-              max={15}
-              step={1}
-              value={formData.years}
-              onChange={(e) => handleYearsChange(Number(e.target.value))}
-              className="w-full mt-1"
-              style={{ background: "linear-gradient(90deg, #c7d2fe, #e0e7ff)" }}
-            />
-            <div className="flex justify-between mt-1">
-              <span className="text-[10px] text-gray-400">2 yr</span>
-              <span className="text-[10px] font-semibold text-indigo-600">{formData.years} years</span>
-              <span className="text-[10px] text-gray-400">15 yr</span>
-            </div>
-            <p className="text-[11px] text-gray-400 mt-0.5">
-              Total analysis window. Ownership period ({stayYears} yr) fits within this.
-            </p>
-          </div>
-        </ProGate>
+        <InputField
+          label="Down Payment"
+          value={formData.down_payment_pct}
+          onChange={(v) => updateField("down_payment_pct", Number(v) || 0)}
+          suffix="%"
+          hint="8% is typical for first-time buyers"
+          compact
+        />
+        {!pro && <ProHint text="Delay purchase timing, custom planning horizon" />}
       </Accordion>
 
       {/* ===== YOUR MORTGAGE ===== */}
@@ -230,32 +183,7 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
             compact
           />
         </div>
-        {/* PRO: rate forecast overrides */}
-        <ProGate isPro={pro} label="Custom rate forecast target and volatility">
-          <div className="pt-2 border-t border-gray-100 grid grid-cols-2 gap-3">
-            <InputField
-              label="Rate Target"
-              value={formData.rate_target}
-              onChange={(v) => updateField("rate_target", v)}
-              suffix="%"
-              placeholder="Auto (20y avg)"
-              hint="Where rates will settle long-term"
-              compact
-            />
-            <SelectField
-              label="Rate Volatility"
-              value={formData.rate_volatility_scale}
-              onChange={(v) => updateField("rate_volatility_scale", v)}
-              options={[
-                { value: "0.5", label: "Calm (0.5\u00d7)" },
-                { value: "1.0", label: "Normal (1\u00d7)" },
-                { value: "1.5", label: "Choppy (1.5\u00d7)" },
-                { value: "2.0", label: "Turbulent (2\u00d7)" },
-              ]}
-              hint="How much rates bounce around the target"
-            />
-          </div>
-        </ProGate>
+        {!pro && <ProHint text="Custom rate forecast target and volatility" />}
       </Accordion>
 
       {/* ===== BUYING COSTS ===== */}
@@ -275,16 +203,6 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
             compact
           />
           <InputField
-            label="Selling Costs"
-            value={formData.sell_cost_pct}
-            onChange={(v) => updateField("sell_cost_pct", Number(v) || 0)}
-            suffix="%"
-            hint="Agent fees when you eventually sell"
-            compact
-          />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <InputField
             label="Home Insurance"
             value={formData.insurance_annual}
             onChange={(v) => updateField("insurance_annual", Number(v) || 0)}
@@ -292,6 +210,8 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
             hint="Per year. $2,000 is a typical US average."
             compact
           />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
           <InputField
             label="Upkeep"
             value={formData.maintenance_rate}
@@ -300,14 +220,23 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
             hint="Yearly repairs as % of home value. 1% is the rule of thumb."
             compact
           />
+          <InputField
+            label="Move-in Cost"
+            value={formData.move_in_cost}
+            onChange={(v) => updateField("move_in_cost", Number(v) || 0)}
+            prefix="$"
+            placeholder="0"
+            hint="One-time costs like movers, new furniture, etc."
+            compact
+          />
         </div>
         <InputField
-          label="Move-in Cost"
-          value={formData.move_in_cost}
-          onChange={(v) => updateField("move_in_cost", Number(v) || 0)}
-          prefix="$"
-          placeholder="0"
-          hint="One-time costs like movers, new furniture, etc."
+          label="Selling Costs (optional)"
+          value={formData.sell_cost_pct}
+          onChange={(v) => updateField("sell_cost_pct", Number(v) || 0)}
+          suffix="%"
+          placeholder="5"
+          hint="Agent fees when you eventually sell. Leave at 5-6% as a typical estimate."
           compact
         />
       </Accordion>
@@ -315,15 +244,16 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
       {/* ===== INCOME & TAXES ===== */}
       <Accordion
         title="Income & Taxes"
-        subtitle={formData.yearly_income ? `$${formData.yearly_income.toLocaleString()}/yr income` : "Not set"}
+        subtitle={formData.yearly_income ? `$${Number(formData.yearly_income).toLocaleString()}/yr income` : "Not set"}
         icon={<span>&#x1f4cb;</span>}
         accentColor="bg-violet-50 text-violet-600"
       >
         <InputField
           label="Yearly Income (before taxes)"
           value={formData.yearly_income}
-          onChange={(v) => updateField("yearly_income", Number(v) || 0)}
+          onChange={(v) => updateField("yearly_income", v)}
           prefix="$"
+          placeholder="Not set"
           hint="Used to calculate how much you save on taxes by owning. Mortgage interest is tax-deductible."
         />
         <SelectField
@@ -365,18 +295,100 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
             { value: "aggressive", label: "Aggressive \u2014 higher risk, higher potential" },
           ]}
           hint={formData.risk_appetite === "savings_only"
-            ? "Surplus cash earns 4.5% APY in a savings account. No stock market exposure. Makes buying look relatively better."
-            : "Controls stock market exposure for surplus cash. Conservative = 0.5\u00d7, moderate = 1\u00d7, aggressive = 1.5\u00d7 market swings."}
+            ? "Surplus cash earns 4.5% APY in a savings account. No stock market exposure."
+            : "Controls stock market exposure for surplus cash. Conservative = 0.5\u00d7, moderate = 1\u00d7, aggressive = 1.5\u00d7."}
         />
         <CrashSlider
           value={formData.outlook_preset}
           onChange={(v) => updateField("outlook_preset", v)}
         />
+        {!pro && <ProHint text="Custom crash severity, recovery timelines, independent stock vs housing shocks" />}
+      </Accordion>
 
-        {/* PRO: custom crash overrides */}
-        <ProGate isPro={pro} label="Custom crash severity, recovery, and independent stock vs housing shocks">
+      {/* ===== ADVANCED (PRO ONLY) ===== */}
+      {pro && (
+        <Accordion
+          title="Advanced"
+          subtitle="Pro settings: timing, rate forecast, crash overrides"
+          icon={<span>&#x2699;&#xfe0f;</span>}
+          accentColor="bg-indigo-50 text-indigo-600"
+        >
+          {/* Planning Horizon */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">
+              Planning Horizon
+            </label>
+            <input
+              type="range" min={2} max={15} step={1}
+              value={formData.years}
+              onChange={(e) => handleYearsChange(Number(e.target.value))}
+              className="w-full mt-1"
+              style={{ background: "linear-gradient(90deg, #c7d2fe, #e0e7ff)" }}
+            />
+            <div className="flex justify-between mt-1">
+              <span className="text-[10px] text-gray-400">2 yr</span>
+              <span className="text-[10px] font-semibold text-indigo-600">{formData.years} years</span>
+              <span className="text-[10px] text-gray-400">15 yr</span>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              Total analysis window. Ownership period ({stayYears} yr) fits within this.
+            </p>
+          </div>
+
+          {/* Buy Delay */}
+          <div>
+            <label className="block text-xs font-medium text-gray-500 mb-1.5">
+              When to Buy
+            </label>
+            <input
+              type="range" min={0} max={5} step={1}
+              value={delayIdx >= 0 ? delayIdx : 0}
+              onChange={(e) => handleDelayChange(DELAY_VALUES[Number(e.target.value)])}
+              className="w-full mt-1"
+              style={{ background: "linear-gradient(90deg, #c7d2fe, #e0e7ff)" }}
+            />
+            <div className="flex justify-between mt-1">
+              <span className={`text-[10px] ${delayIdx === 0 ? "font-semibold text-indigo-600" : "text-gray-400"}`}>Now</span>
+              <span className={`text-[10px] ${delayIdx === 5 ? "font-semibold text-indigo-600" : "text-gray-400"}`}>2 yr</span>
+            </div>
+            <p className="text-[11px] text-gray-400 mt-0.5">
+              {formData.buy_delay_months === 0
+                ? "Buy right away"
+                : `Rent for ${formData.buy_delay_months} months first, then buy`}
+            </p>
+          </div>
+
+          {/* Rate Forecast */}
+          <div className="pt-3 border-t border-gray-100">
+            <p className="text-xs font-medium text-gray-500 mb-2">Rate Forecast</p>
+            <div className="grid grid-cols-2 gap-3">
+              <InputField
+                label="Rate Target"
+                value={formData.rate_target}
+                onChange={(v) => updateField("rate_target", v)}
+                suffix="%"
+                placeholder="Auto (20y avg)"
+                hint="Where rates will settle long-term"
+                compact
+              />
+              <SelectField
+                label="Rate Volatility"
+                value={formData.rate_volatility_scale}
+                onChange={(v) => updateField("rate_volatility_scale", v)}
+                options={[
+                  { value: "0.5", label: "Calm (0.5\u00d7)" },
+                  { value: "1.0", label: "Normal (1\u00d7)" },
+                  { value: "1.5", label: "Choppy (1.5\u00d7)" },
+                  { value: "2.0", label: "Turbulent (2\u00d7)" },
+                ]}
+                hint="How much rates bounce around the target"
+              />
+            </div>
+          </div>
+
+          {/* Crash Overrides */}
           <div className="pt-3 border-t border-gray-100 space-y-4">
-            <p className="text-[11px] text-gray-500 font-medium">Housing Crash</p>
+            <p className="text-xs font-medium text-gray-500">Housing Crash Override</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] text-gray-500 mb-1">Probability</label>
@@ -418,7 +430,7 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
               </div>
             </div>
 
-            <p className="text-[11px] text-gray-500 font-medium pt-2">Stock Market Crash</p>
+            <p className="text-xs font-medium text-gray-500 pt-2">Stock Market Crash Override</p>
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] text-gray-500 mb-1">Probability</label>
@@ -460,8 +472,8 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
               </div>
             </div>
           </div>
-        </ProGate>
-      </Accordion>
+        </Accordion>
+      )}
     </div>
   );
 }

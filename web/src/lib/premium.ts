@@ -13,22 +13,16 @@ export const PRO_FEATURES: ProFeature[] = [
     endpoint: "/llm-summary",
   },
   {
-    id: "buying-memo",
-    title: "Export Buying Memo",
-    description: "Download a personalized PDF with your numbers, market data, and analysis — ready to share with your lender or agent.",
-    endpoint: "/buying-memo",
+    id: "whatif",
+    title: "What-If Scenarios",
+    description: "What if rates drop? What if you wait? See how common changes would affect your outcome.",
+    endpoint: "/whatif",
   },
   {
     id: "sensitivity",
-    title: "What-If Analysis",
-    description: "See how changing your rate, price, or down payment would shift the outcome. Interactive heatmap included.",
+    title: "Sensitivity Analysis",
+    description: "Which inputs matter most for your decision? Interactive heatmap included.",
     endpoint: "/sensitivity",
-  },
-  {
-    id: "scenarios",
-    title: "Save & Compare Scenarios",
-    description: "Save different scenarios and compare them side by side. Get alerts when market changes affect your decision.",
-    endpoint: "/scenarios",
   },
   {
     id: "trend",
@@ -41,5 +35,11 @@ export const PRO_FEATURES: ProFeature[] = [
     title: "Neighborhood Comparison",
     description: "Compare buying outcomes across nearby ZIP codes to find the best value.",
     endpoint: "/zip-compare",
+  },
+  {
+    id: "buying-memo",
+    title: "Export Buying Memo",
+    description: "Download a personalized PDF with your numbers — ready to share with your lender or agent.",
+    endpoint: "/buying-memo",
   },
 ];

@@ -1,11 +1,11 @@
 # Rent vs Buy — Frontend Architecture
 
 ## Stack
-- **Next.js 15.4** with static export (`output: "export"` in next.config.ts)
-- **React 19.1** with TypeScript 6.0 (strict mode)
+- **Next.js 15.4** with static export (`output: "export"`)
+- **React 19.1** with TypeScript 6.0
 - **Recharts 2.15** for all charts
-- **Tailwind CSS 4.2** for styling
-- **No state management library** — React hooks + prop drilling
+- **Tailwind CSS 4.2** (PostCSS plugin, no tailwind.config)
+- No state management library — React hooks + prop drilling
 
 ## Running
 
@@ -19,10 +19,30 @@ npm run build        # static export to web/out/
 Environment:
 - `NEXT_PUBLIC_API_URL` — API base URL (default: `http://localhost:8000`)
 
-**Important**: Do not run `npm run build` while the dev server is active — it breaks CSS output.
+**Important**: Do not run `npm run build` while the dev server is active — it overwrites `.next` and breaks CSS.
 
 ## Deployment
 Static export (`web/out/`) → S3 bucket + CloudFront. Domain: `rentbuysellapp.com`.
+
+---
+
+## Pages
+
+### `/` — Calculator
+- Hero: rent, budget, savings + estimated home price (from ZIP lookup or national median)
+- Client-side validation hints (budget < rent, insufficient cash, low DP)
+- Results: KeyMetrics (4 cards) + 5 charts + warnings banner
+- Settings: 5 accordion sections with Pro controls inline via `ProGate`
+- "Dig Deeper": 6 Pro feature cards (expandable previews for free, links for Pro)
+- Saved Scenarios section (Pro only)
+- Sticky bottom bar: quick stats (price @ rate, monthly cost, verdict) + action buttons
+- Footer: About + data attribution
+
+### `/insights` — Pro Insights
+- Context banner: scenario summary loaded from localStorage (or server via cache_key)
+- 6 Pro sections with app screenshots as placeholders (AI Summary, What-If, Trend, ZIP Compare, Scenarios, Buying Memo)
+- Free users see grayed previews with upgrade CTA
+- Pro users see real content (when built) or "coming soon"
 
 ---
 
@@ -31,50 +51,48 @@ Static export (`web/out/`) → S3 bucket + CloudFront. Domain: `rentbuysellapp.c
 ```
 web/src/
 ├── app/
-│   ├── layout.tsx            — Root layout (metadata, fonts)
-│   ├── page.tsx              — Main page (assembles form + results)
-│   └── globals.css           — Global styles + Tailwind imports
-├── lib/                      — Shared utilities (no React)
-│   ├── types.ts              — TypeScript interfaces (mirrors api/API.md)
-│   ├── api.ts                — Fetch wrappers + formToRequest() conversion
-│   ├── defaults.ts           — DEFAULT_FORM_VALUES
-│   ├── device.ts             — getDeviceId() — localStorage UUID
-│   ├── formatters.ts         — formatCurrency(), formatPercent(), etc.
-│   └── premium.ts            — PRO tier feature flags
-├── hooks/                    — Custom React hooks
-│   ├── useSimulation.ts      — Form state + API call + results caching
-│   ├── useScenarios.ts       — PRO: load/save/delete saved scenarios
-│   └── usePremium.ts         — PRO tier detection
+│   ├── layout.tsx              — Root layout (metadata, Inter font)
+│   ├── page.tsx                — Calculator page
+│   ├── insights/page.tsx       — Pro Insights page
+│   └── globals.css             — Tailwind + custom styles
+├── lib/
+│   ├── types.ts                — TypeScript interfaces (mirrors api/API.md)
+│   ├── api.ts                  — Fetch wrappers, formToRequest(), Pro CRUD
+│   ├── defaults.ts             — DEFAULT_FORM_VALUES
+│   ├── device.ts               — getDeviceId() — localStorage UUID for X-Device-Id
+│   ├── formatters.ts           — formatCurrency, formatPercent, formatCompact, etc.
+│   ├── premium.ts              — PRO_FEATURES array (6 features)
+│   └── resultStore.ts          — localStorage bridge for cross-page result sharing
+├── hooks/
+│   ├── useSimulation.ts        — Form state, API call, result storage
+│   ├── useScenarios.ts         — Pro: scenario CRUD
+│   ├── usePremium.ts           — isPro from localStorage
+│   └── useZipPrices.ts         — Lazy-loads ZIP price lookup data
 ├── components/
-│   ├── form/                 — Input form (4 steps)
-│   │   ├── SimulatorForm.tsx — Orchestrates steps
-│   │   ├── StepAboutYou.tsx  — Step 1: rent, budget, savings
-│   │   ├── StepBuying.tsx    — Step 2: ZIP, price, down %, credit, term
-│   │   ├── StepCosts.tsx     — Step 3: closing, insurance, maintenance, sell
-│   │   ├── StepAdvanced.tsx  — Step 4: income, deductions, risk, outlook
-│   │   ├── SettingsPanel.tsx — Collapsible settings in results view
-│   │   └── CrashSlider.tsx   — Market outlook preset selector
-│   ├── results/              — Output visualizations
-│   │   ├── ResultsDashboard.tsx    — Orchestrates all result panels
-│   │   ├── KeyMetrics.tsx          — Score, verdict, breakeven, NW summary
-│   │   ├── NetWorthChart.tsx       — Buyer vs Renter NW (with percentile bands)
-│   │   ├── HomeValueChart.tsx      — Home value over time
-│   │   ├── RentVsBuyChart.tsx      — Monthly cost comparison
-│   │   ├── CostBreakdownChart.tsx  — Stacked housing cost components
-│   │   ├── EquityGrowthChart.tsx   — Equity accumulation
-│   │   ├── CumulativeCostChart.tsx — Total spend comparison
-│   │   ├── ProInsights.tsx         — PRO: AI narrative, sensitivity
-│   │   └── ChartCard.tsx           — Reusable chart container
-│   ├── scenarios/            — PRO: Scenario management
-│   │   ├── ScenarioList.tsx  — List + re-run + delete
-│   │   ├── SaveButton.tsx    — Save current simulation
-│   │   └── AlertToggles.tsx  — Alert type toggles per scenario
-│   └── ui/                   — Reusable primitives
-│       ├── InputField.tsx    — Labeled text/number input
-│       ├── SelectField.tsx   — Labeled dropdown
-│       ├── Accordion.tsx     — Collapsible section
-│       ├── StepIndicator.tsx — Form progress indicator
-│       └── ProBadge.tsx      — PRO feature badge
+│   ├── form/
+│   │   ├── SettingsPanel.tsx   — 5 accordions with Pro controls via ProGate
+│   │   └── CrashSlider.tsx     — Outlook preset slider (optimistic → crisis)
+│   ├── results/
+│   │   ├── ResultsDashboard.tsx — KeyMetrics + chart grid + warnings + ProInsights
+│   │   ├── KeyMetrics.tsx       — 4 cards (verdict, breakeven with crossing_count, home value, rate)
+│   │   ├── NetWorthChart.tsx    — Buyer vs Renter with breakeven + sell lines
+│   │   ├── HomeValueChart.tsx   — With percentile confidence bands (p10-p90)
+│   │   ├── RentVsBuyChart.tsx   — Monthly cost comparison with sell line
+│   │   ├── CostBreakdownChart.tsx — Stacked areas + tax savings dashed line + sell line
+│   │   ├── EquityGrowthChart.tsx  — With sell line
+│   │   ├── ProInsights.tsx      — 6-card grid, expandable previews (free), links to /insights (Pro)
+│   │   └── ChartCard.tsx        — Reusable chart wrapper
+│   ├── scenarios/
+│   │   ├── SaveButton.tsx       — Inline name input after results
+│   │   ├── ScenarioList.tsx     — Expandable cards with re-run, view, delete
+│   │   └── AlertToggles.tsx     — Per-scenario alert checkboxes + email prompt
+│   └── ui/
+│       ├── Accordion.tsx
+│       ├── InputField.tsx       — With onFocus support for ZIP lazy-load
+│       ├── SelectField.tsx
+│       ├── ChartCard.tsx
+│       ├── ProBadge.tsx
+│       └── ProGate.tsx          — Shows children for Pro, badge+label for free
 ```
 
 ---
@@ -82,79 +100,126 @@ web/src/
 ## Data Flow
 
 ```
-FormData (UI state, strings/numbers in display units)
-    ↓ formToRequest() in lib/api.ts
-SummaryRequest (API contract, decimals)
+FormData (display units: 8%, $2000)
+    ↓ formToRequest()
+SummaryRequest (API units: 0.08, 2000)
     ↓ POST /summary
-SummaryResponse (API contract)
+SummaryResponse (includes warnings, percentiles, cache_key, data_vintage)
+    ↓ storeResult() → localStorage
     ↓ passed as props
-ResultsDashboard → individual chart components
+ResultsDashboard → charts, metrics, ProInsights
+    ↓ link
+/insights page → loadResult() from localStorage
 ```
 
 ### Key Conversions in `formToRequest()`
-- Percentage fields (down_payment_pct, closing_cost_pct, etc.): divided by 100
-- Mortgage rate: divided by 100 (user enters 6.5, API expects 0.065)
-- house_price, mortgage_rate: empty string → null (triggers auto-estimation)
+- Percentage fields (down_payment_pct, closing_cost_pct, etc.): ÷ 100
+- mortgage_rate, rate_target: string → number ÷ 100, empty → null
+- house_price: empty string → null (triggers auto-estimation)
 - zip_code: empty string → null
+- stay_years: equals years → null (API convention)
+- crash overrides: null = use preset defaults
+- rate_volatility_scale: "1.0" → null (default)
 
 ---
 
-## Type Contracts
+## Pro Tier Architecture
 
-**Source of truth**: `api/API.md` defines the API contract. `web/src/lib/types.ts` must mirror it exactly.
+### Pro Controls (inline in settings via ProGate)
 
-### Core Types (types.ts)
+| Section | Control | Free users see |
+|---------|---------|----------------|
+| Where & What | Planning horizon (2-15y) | PRO badge + label |
+| Where & What | Buy delay (0-24mo) | PRO badge + label |
+| Your Mortgage | Rate target (%) | PRO badge + label |
+| Your Mortgage | Rate volatility (0.5-2×) | PRO badge + label |
+| Market Outlook | Housing crash (prob, drop, recovery%, time) | PRO badge + label |
+| Market Outlook | Stock crash (prob, drop, recovery%, time) | PRO badge + label |
 
-| Interface | Maps to | Notes |
-|-----------|---------|-------|
-| `SummaryRequest` | POST /summary body | 22+ optional fields |
-| `SummaryResponse` | POST /summary response | buy_score, verdict, breakeven_month, monthly[], percentiles |
-| `MonthlyData` | Each element of monthly[] | 19 fields per month |
-| `PercentileBands` | Each metric's confidence bands | p10, p25, p50, p75, p90 arrays |
-| `Percentiles` | percentiles object | buyer_net_worth, renter_net_worth, home_value, buyer_equity |
-| `Scenario` | GET/POST /scenarios | id, name, inputs, response, timestamps |
-| `Alert` | GET/POST /scenarios/{id}/alerts | id, alert_type, enabled, config |
-| `FormData` | Internal form state | String types for numeric inputs (allows empty) |
+### Pro Functions (separate experiences on /insights)
 
----
+| Feature | API Endpoint | Entry Point |
+|---------|-------------|-------------|
+| AI Summary | POST /llm-summary | Dig Deeper card → /insights#ai-summary |
+| What-If Analysis | POST /sensitivity | Dig Deeper card → /insights#sensitivity |
+| Best Time to Buy | POST /trend | Dig Deeper card → /insights#trend |
+| ZIP Comparison | POST /zip-compare | Dig Deeper card → /insights#zip-compare |
+| Save & Compare | /scenarios CRUD | My Scenarios section + /insights#scenarios |
+| Buying Memo (PDF) | Not yet built | /insights#buying-memo |
+| CSV Export | POST /summary/csv | Download button (TBD) |
+| Rate Forecast Chart | percentiles.mortgage_rate | TBD |
 
-## Component Ownership
-
-| Component | Data Source | API Dependency |
-|-----------|-----------|----------------|
-| `SimulatorForm` | FormData state | None (local) |
-| `ResultsDashboard` | SummaryResponse prop | POST /summary |
-| `KeyMetrics` | SummaryResponse | None (derived) |
-| `*Chart` components | SummaryResponse.monthly[] | None (derived) |
-| `ProInsights` | SummaryResponse + LLM | POST /llm-summary |
-| `ScenarioList` | Scenario[] | GET /scenarios, POST /scenarios/{id}/run |
-| `SaveButton` | FormData + SummaryResponse | POST /scenarios |
-| `AlertToggles` | Alert[] | POST/DELETE /scenarios/{id}/alerts |
-
----
-
-## State Management
-
-No external state library. State lives in hooks:
-
-- **`useSimulation`** — owns `FormData`, `SummaryResponse | null`, loading/error state. Calls `postSummary()`.
-- **`useScenarios`** — owns `Scenario[]`. Calls scenario CRUD endpoints. Depends on device ID.
-- **`usePremium`** — derived from scenario count or feature flag. No API call.
+### Device Identity
+- UUID v4 generated on first visit, stored in localStorage as `device_id`
+- Sent as `X-Device-Id` header on all Pro requests
+- No auth flow yet — device = identity for MVP
 
 ---
 
-## Default Form Values (defaults.ts)
+## Result Caching & Reproducibility (pending API support)
 
-```ts
+### Problem
+Separate API calls for /summary, /sensitivity, /llm-summary run independent MC simulations.
+Same inputs can give slightly different results. LLM text could contradict numbers.
+Data refresh between calls means results from different data vintages.
+
+### Solution: Content-Addressed Caching + Permanent Scenario Storage
+
+**Two storage layers:**
+
+1. **Result Cache** (transient, server-side, shared across users)
+   - Key: SHA-256 of canonical(inputs) + data_vintage
+   - Avoids redundant MC runs for identical requests
+   - Columns populated lazily (summary first, pro insights on demand)
+   - Prunable after 30-90 days
+
+2. **Scenario Storage** (permanent, per-device)
+   - Full result snapshot copied from cache when user saves
+   - Never pruned — user's data, persists until explicitly deleted
+   - Includes all computed results (summary + pro insights + LLM text)
+   - Stores data_vintage + cache_key for reference
+
+**API response additions needed:**
+```typescript
+interface SummaryResponse {
+  // ... existing fields ...
+  cache_key: string;       // hash of inputs + data_vintage
+  data_vintage: string;    // ISO date of market.db last refresh
+}
+```
+
+**Frontend behavior:**
+- Display data_vintage in context banner and bottom bar ("Data: Mar 2026")
+- Stale indicator when saved scenario vintage < current
+- Viewing saved scenario returns stored results (never re-computes)
+- Re-run checks if data changed; if unchanged, returns identical cached results
+
+**Consistency guarantees:**
+- Same inputs + same data_vintage = same numeric results (deterministic seed)
+- Same cache_key = same LLM text (generated once, stored permanently)
+- Cross-device: cache is server-side, same inputs hit same cache regardless of device
+
+---
+
+## Defaults (defaults.ts)
+
+```
 monthly_rent: 1800
 monthly_budget: 2500
 initial_cash: 60000
 yearly_income: 100000
-down_payment_pct: 8        // display value (÷100 before API call)
+down_payment_pct: 8
 closing_cost_pct: 3
 maintenance_rate: 1
-sell_cost_pct: 6
+insurance_annual: 2000
+sell_cost_pct: 5
 years: 10
-num_simulations: 500
-crash_outlook: "none"      // NOTE: maps to backend's "outlook_preset" field
+stay_years: 10
+outlook_preset: "historical"
+risk_appetite: "moderate"
+credit_quality: "good"
+term_years: 30
+All Pro crash overrides: null (use preset)
+rate_target: "" (auto)
+rate_volatility_scale: "1.0" (normal)
 ```

@@ -409,6 +409,18 @@ def export_zip_prices():
     print("  Done.\n")
 
 
+def prune_result_cache():
+    """Clean up old result cache entries after data refresh."""
+    try:
+        from result_cache import prune_cache, invalidate_vintage_cache
+        invalidate_vintage_cache()
+        deleted = prune_cache(max_age_days=90)
+        if deleted:
+            print(f"  Pruned {deleted} stale cache entries")
+    except Exception as e:
+        print(f"  [WARN] Cache prune failed: {e}")
+
+
 def run_post_refresh_notifications():
     """Re-run saved scenarios with alerts, detect diffs, send notifications."""
     try:
@@ -427,7 +439,8 @@ def refresh_all():
     refresh_geo_and_tax()
     export_zip_prices()
 
-    # Post-refresh: check saved scenarios for alert-worthy changes
+    # Post-refresh housekeeping
+    prune_result_cache()
     run_post_refresh_notifications()
 
     # Print DB size

@@ -11,7 +11,7 @@ from models import SimulationInput, UserProfile, PropertyParams, MortgageParams,
 from market import get_data
 from simulator import run_simulation, estimate_house_price, MonthlySnapshot
 from scoring import compute_buy_score, compute_verdict
-from sensitivity import run_sensitivity, SensitivityPoint
+from sensitivity import run_sensitivity, run_whatif_scenarios, SensitivityPoint, AVAILABLE_AXES
 from trend import run_trend, run_zip_comparison, TrendPoint, ZipScore
 from llm_summary import generate_summary
 from scenarios import router as scenarios_router
@@ -20,6 +20,10 @@ from data_store import init_db, get_median_home_price, get_national_median_home_
 from validation import validate_inputs, ValidationIssue
 from market import get_property_tax_rate
 from starlette.staticfiles import StaticFiles
+from result_cache import (
+    get_data_vintage, compute_cache_key, canonical_inputs,
+    get_cache_entry, create_cache_entry, update_cache_column,
+)
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 
@@ -173,6 +177,8 @@ class InputWarning(BaseModel):
 
 
 class SummaryResponse(BaseModel):
+    cache_key: str            # SHA-256 hash of canonical inputs + data_vintage
+    data_vintage: str         # ISO date of underlying market data (e.g. "2026-03-29")
     house_price: float
     mortgage_rate: float
     property_tax_rate: float
@@ -324,39 +330,68 @@ def _resolve_and_validate(req: SummaryRequest) -> tuple[list[InputWarning], floa
     return warnings, house_price, mortgage_rate, prop_tax_rate
 
 
+def _build_summary_response(
+    result, score: int, warnings: list[InputWarning],
+    cache_key: str, data_vintage: str,
+) -> dict:
+    """Build the SummaryResponse dict from simulation result."""
+    pct = result.percentiles
+    return {
+        "cache_key": cache_key,
+        "data_vintage": data_vintage,
+        "house_price": result.house_price_used,
+        "mortgage_rate": result.mortgage_rate_used,
+        "property_tax_rate": result.property_tax_rate,
+        "avg_buyer_net_worth": result.avg_buyer_net_worth,
+        "avg_renter_net_worth": result.avg_renter_net_worth,
+        "buy_score": score,
+        "verdict": compute_verdict(score),
+        "breakeven_month": result.breakeven_month,
+        "crossing_count": result.crossing_count,
+        "warnings": [{"code": w.code, "severity": w.severity, "message": w.message} for w in warnings],
+        "monthly": [_snapshot_to_dict(s) for s in result.monthly],
+        "percentiles": {
+            "buyer_net_worth": vars(pct.buyer_net_worth),
+            "renter_net_worth": vars(pct.renter_net_worth),
+            "home_value": vars(pct.home_value),
+            "buyer_equity": vars(pct.buyer_equity),
+            "mortgage_rate": vars(pct.mortgage_rate),
+        },
+    }
+
+
 @app.post("/summary", response_model=SummaryResponse)
 def summary(req: SummaryRequest):
     warnings, _, _, _ = _resolve_and_validate(req)
 
+    # Cache lookup
+    vintage = get_data_vintage()
+    req_dict = req.model_dump()
+    cache_key = compute_cache_key(req_dict, vintage)
+
+    entry = get_cache_entry(cache_key)
+    if entry and entry.summary_json:
+        # Cache hit — return stored result with fresh warnings
+        cached = json.loads(entry.summary_json)
+        cached["warnings"] = [{"code": w.code, "severity": w.severity, "message": w.message} for w in warnings]
+        cached["cache_key"] = cache_key
+        cached["data_vintage"] = vintage
+        return cached
+
+    # Cache miss — run simulation
     data = get_data()
     inputs = _request_to_input(req)
     result = run_simulation(inputs, data)
-
     score = compute_buy_score(result)
 
-    pct = result.percentiles
-    percentiles_data = PercentilesData(
-        buyer_net_worth=PercentileBandsData(**vars(pct.buyer_net_worth)),
-        renter_net_worth=PercentileBandsData(**vars(pct.renter_net_worth)),
-        home_value=PercentileBandsData(**vars(pct.home_value)),
-        buyer_equity=PercentileBandsData(**vars(pct.buyer_equity)),
-        mortgage_rate=PercentileBandsData(**vars(pct.mortgage_rate)),
-    )
+    response = _build_summary_response(result, score, warnings, cache_key, vintage)
 
-    return SummaryResponse(
-        house_price=result.house_price_used,
-        mortgage_rate=result.mortgage_rate_used,
-        property_tax_rate=result.property_tax_rate,
-        avg_buyer_net_worth=result.avg_buyer_net_worth,
-        avg_renter_net_worth=result.avg_renter_net_worth,
-        buy_score=score,
-        verdict=compute_verdict(score),
-        breakeven_month=result.breakeven_month,
-        crossing_count=result.crossing_count,
-        warnings=warnings,
-        monthly=[MonthlyData(**_snapshot_to_dict(s)) for s in result.monthly],
-        percentiles=percentiles_data,
-    )
+    # Store in cache
+    inputs_json = canonical_inputs(req_dict)
+    create_cache_entry(cache_key, vintage, inputs_json)
+    update_cache_column(cache_key, "summary_json", json.dumps(response))
+
+    return response
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -454,11 +489,32 @@ class SensitivityResponse(BaseModel):
     heatmap: HeatmapOut
 
 
+class SensitivityRequest(SummaryRequest):
+    # Which 1D axes to sweep. Default: rate, price, down payment, outlook.
+    # Available: mortgage_rate, house_price, down_payment_pct, outlook,
+    #            stay_years, yearly_income, initial_cash, risk_appetite
+    axes: list[str] | None = None
+    heatmap_x: str | None = None   # X axis for 2D heatmap. Default: house_price
+    heatmap_y: str | None = None   # Y axis for 2D heatmap. Default: mortgage_rate
+
+
 @app.post("/sensitivity", response_model=SensitivityResponse)
-def sensitivity(req: SummaryRequest):
+def sensitivity(req: SensitivityRequest):
+    # Cache check (includes axes/heatmap params in key)
+    vintage = get_data_vintage()
+    cache_key = compute_cache_key(req.model_dump(), vintage)
+    entry = get_cache_entry(cache_key)
+    if entry and entry.sensitivity_json:
+        return json.loads(entry.sensitivity_json)
+
     data = get_data()
     inputs = _request_to_input(req)
-    result = run_sensitivity(inputs, data)
+    result = run_sensitivity(
+        inputs, data,
+        axes_to_run=req.axes,
+        heatmap_x=req.heatmap_x,
+        heatmap_y=req.heatmap_y,
+    )
 
     axes_out = {}
     for name, points in result.axes.items():
@@ -489,13 +545,64 @@ def sensitivity(req: SummaryRequest):
         ],
     )
 
-    return SensitivityResponse(
+    response = SensitivityResponse(
         base_buyer_nw=result.base_buyer_nw,
         base_renter_nw=result.base_renter_nw,
         base_net_diff=result.base_net_diff,
         base_buy_score=result.base_buy_score,
         axes=axes_out,
         heatmap=heatmap_out,
+    )
+
+    # Store in cache
+    if not entry:
+        create_cache_entry(cache_key, vintage, canonical_inputs(req.model_dump()))
+    update_cache_column(cache_key, "sensitivity_json", response.model_dump_json())
+    return response
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# POST /whatif — named what-if scenarios (pro tier)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class WhatIfRequest(SummaryRequest):
+    scenario_ids: list[str] | None = None  # subset to run. None = all applicable
+
+
+class WhatIfScenarioOut(BaseModel):
+    id: str
+    name: str
+    description: str
+    buyer_net_worth: float
+    renter_net_worth: float
+    net_difference: float
+    delta_from_base: float  # change vs base scenario (positive = better for buying)
+    breakeven_month: int | None
+    buy_score: int
+
+
+class WhatIfResponse(BaseModel):
+    base_net_diff: float
+    scenarios: list[WhatIfScenarioOut]
+
+
+@app.post("/whatif", response_model=WhatIfResponse)
+def whatif(req: WhatIfRequest):
+    data = get_data()
+    inputs = _request_to_input(req)
+    base_diff, scenarios = run_whatif_scenarios(inputs, data, scenario_ids=req.scenario_ids)
+
+    return WhatIfResponse(
+        base_net_diff=base_diff,
+        scenarios=[
+            WhatIfScenarioOut(
+                id=s.id, name=s.name, description=s.description,
+                buyer_net_worth=s.buyer_net_worth, renter_net_worth=s.renter_net_worth,
+                net_difference=s.net_difference, delta_from_base=s.delta_from_base,
+                breakeven_month=s.breakeven_month, buy_score=s.buy_score,
+            )
+            for s in scenarios
+        ],
     )
 
 
@@ -527,11 +634,18 @@ class TrendResponse(BaseModel):
 
 @app.post("/trend", response_model=TrendResponse)
 def trend(req: TrendRequest):
+    # Cache check (trend includes max_delay_quarters in key via model_dump)
+    vintage = get_data_vintage()
+    cache_key = compute_cache_key(req.model_dump(), vintage)
+    entry = get_cache_entry(cache_key)
+    if entry and entry.trend_json:
+        return json.loads(entry.trend_json)
+
     data = get_data()
     inputs = _request_to_input(req)
     result = run_trend(inputs, data, max_delay_quarters=req.max_delay_quarters)
 
-    return TrendResponse(
+    response = TrendResponse(
         points=[
             TrendPointOut(
                 delay_months=p.delay_months, label=p.label,
@@ -544,6 +658,11 @@ def trend(req: TrendRequest):
             for p in result.points
         ],
     )
+
+    if not entry:
+        create_cache_entry(cache_key, vintage, canonical_inputs(req.model_dump()))
+    update_cache_column(cache_key, "trend_json", response.model_dump_json())
+    return response
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -582,11 +701,18 @@ def zip_compare(req: ZipCompareRequest):
     if not zip_codes:
         raise HTTPException(400, "Provide zip_codes or zip_code for neighbor lookup")
 
+    # Cache check (zip_compare includes zip_codes in key)
+    vintage = get_data_vintage()
+    cache_key = compute_cache_key(req.model_dump(), vintage)
+    entry = get_cache_entry(cache_key)
+    if entry and entry.zip_compare_json:
+        return json.loads(entry.zip_compare_json)
+
     data = get_data()
     inputs = _request_to_input(req)
     result = run_zip_comparison(inputs, data, zip_codes)
 
-    return ZipCompareResponse(
+    response = ZipCompareResponse(
         scores=[
             ZipScoreOut(
                 zip_code=s.zip_code, city=s.city, state=s.state,
@@ -598,6 +724,11 @@ def zip_compare(req: ZipCompareRequest):
             for s in result.scores
         ],
     )
+
+    if not entry:
+        create_cache_entry(cache_key, vintage, canonical_inputs(req.model_dump()))
+    update_cache_column(cache_key, "zip_compare_json", response.model_dump_json())
+    return response
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -627,12 +758,20 @@ class LLMSummaryResponse(BaseModel):
 
 @app.post("/llm-summary", response_model=LLMSummaryResponse)
 async def llm_summary(req: SummaryRequest):
+    # Cache check — LLM output is expensive, always cache
+    vintage = get_data_vintage()
+    cache_key = compute_cache_key(req.model_dump(), vintage)
+    entry = get_cache_entry(cache_key)
+    if entry and entry.llm_summary_json:
+        return json.loads(entry.llm_summary_json)
+
+    # Use cached summary result if available, otherwise run fresh
     data = get_data()
     inputs = _request_to_input(req)
     result = run_simulation(inputs, data)
     llm_result = await generate_summary(result, sell_cost_pct=req.sell_cost_pct)
 
-    return LLMSummaryResponse(
+    response = LLMSummaryResponse(
         summary=llm_result.summary,
         buy_costs_summary=llm_result.buy_costs_summary,
         buy_pros=llm_result.buy_pros,
@@ -642,6 +781,11 @@ async def llm_summary(req: SummaryRequest):
         verdict=llm_result.verdict,
         score=llm_result.score,
     )
+
+    if not entry:
+        create_cache_entry(cache_key, vintage, canonical_inputs(req.model_dump()))
+    update_cache_column(cache_key, "llm_summary_json", response.model_dump_json())
+    return response
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -4,7 +4,7 @@ export const DEFAULT_FORM_VALUES: FormData = {
   monthly_rent: 1800,
   monthly_budget: 2500,
   initial_cash: 60000,
-  yearly_income: 100000,
+  yearly_income: "",
   filing_status: "single",
   other_deductions: 0,
   risk_appetite: "moderate",

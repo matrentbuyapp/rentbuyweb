@@ -4,6 +4,26 @@ Base URL: `https://api.rentbuysellapp.com` (production) or `http://localhost:800
 
 ---
 
+## Result Caching
+
+All simulation endpoints are cached server-side. Identical inputs with the same underlying market data return cached results instantly (~3ms vs ~1s for a fresh MC run).
+
+**How it works:**
+- `cache_key` = SHA-256 of canonical inputs + `data_vintage`
+- `data_vintage` = ISO date of the most recent data refresh (FRED/Zillow)
+- Each endpoint's result is stored in a separate column, populated lazily
+- When market data refreshes, `data_vintage` changes → new cache keys → old results serve until pruned
+
+**Response fields** (all endpoints):
+- `cache_key`: deterministic hash for client-side caching / dedup
+- `data_vintage`: when the underlying data was refreshed
+
+**Pruning**: cache entries older than 90 days with no scenario reference are cleaned after data refresh. Scenarios are never pruned.
+
+**Storage strategy**: SQLite locally (single-instance). At AWS scale: DynamoDB for metadata + S3 for large result blobs (abstraction layer is swappable, not built yet).
+
+---
+
 ## Free Tier Endpoints
 
 ### `POST /summary`
@@ -151,6 +171,8 @@ The response includes a `warnings` array. If inputs are impossible (e.g., can't 
 
 ```json
 {
+  "cache_key": "5c27de39e153...",   // SHA-256 of canonical inputs + data_vintage
+  "data_vintage": "2026-03-28",     // ISO date of underlying market data
   "house_price": 650000,
   "mortgage_rate": 0.06875,
   "property_tax_rate": 0.0142,
@@ -317,10 +339,70 @@ Frontend: trigger via download button, open in new tab or use `<a download>`.
 
 ### `POST /sensitivity`
 
-What-if analysis. Varies each input parameter, measures impact on buyer/renter NW. Includes 2D heatmap.
+Parametric sensitivity analysis. Sweeps 1D axes and builds a 2D heatmap.
 
-Request: same body as `/summary`.
+Request: same body as `/summary` plus:
+```json
+{
+  "axes": ["mortgage_rate", "house_price", "stay_years"],  // which 1D axes to sweep (default: rate, price, dp, outlook)
+  "heatmap_x": "down_payment_pct",    // X axis for 2D grid (default: house_price)
+  "heatmap_y": "stay_years"           // Y axis for 2D grid (default: mortgage_rate)
+}
+```
+
+**Available axes**: `mortgage_rate`, `house_price`, `down_payment_pct`, `outlook`, `stay_years`, `yearly_income`, `initial_cash`, `risk_appetite`
+
 Response: `{ base_buyer_nw, base_renter_nw, base_net_diff, base_buy_score, axes: {param: [SensitivityPoint]}, heatmap: HeatmapOut }`.
+
+Each `SensitivityPoint`: `{ label, param_name, param_value, buyer_net_worth, renter_net_worth, net_difference, breakeven_month }`
+
+Each `HeatmapCell`: `{ x_label, y_label, x_value, y_value, net_difference, breakeven_month, buy_score }`
+
+### `POST /whatif`
+
+Named what-if scenarios — predefined stories that answer common "what if" questions. Each scenario modifies one or more parameters, runs a simulation, and reports the result as a delta from the base case.
+
+Request: same body as `/summary` plus:
+```json
+{
+  "scenario_ids": ["rates_drop_1pct", "crash_next_year"]  // optional subset. null = all applicable
+}
+```
+
+**Available scenarios:**
+| ID | Name | What it does |
+|---|---|---|
+| `rates_drop_1pct` | Rates drop 1% | Lowers mortgage rate by 1 percentage point |
+| `rates_drop_2pct` | Rates drop 2% | Lowers mortgage rate by 2 percentage points |
+| `rates_rise_1pct` | Rates rise 1% | Raises mortgage rate by 1 percentage point |
+| `cheaper_home` | Buy 15% cheaper | Reduces house price by 15% |
+| `save_2_more_years` | Save for 2 more years | Sets buy_delay to 24 months |
+| `20pct_down` | Put 20% down | Increases down payment to 20% (eliminates PMI) |
+| `crash_next_year` | Market crash next year | Applies pessimistic outlook preset |
+| `stay_5_sell` | Stay 5 years then sell | Sets stay_years to 5 |
+| `conservative_investing` | Keep cash in savings | Sets risk_appetite to savings_only |
+
+Scenarios that duplicate the base case are automatically filtered out.
+
+Response:
+```json
+{
+  "base_net_diff": 189124,
+  "scenarios": [
+    {
+      "id": "rates_drop_1pct",
+      "name": "Rates drop 1%",
+      "description": "Mortgage rate falls to 5.6%",
+      "buyer_net_worth": 620000,
+      "renter_net_worth": 420000,
+      "net_difference": 200417,
+      "delta_from_base": 11293,    // positive = buying improves vs base
+      "breakeven_month": 42,
+      "buy_score": 96
+    }
+  ]
+}
+```
 
 ### `POST /trend`
 

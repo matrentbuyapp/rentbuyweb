@@ -1,27 +1,48 @@
 /**
- * Simple localStorage-backed store for sharing the last simulation result
- * across pages (main calculator → insights page).
+ * localStorage-backed store for sharing simulation results across pages.
+ * Stores the last result + inputs + cache metadata + viewing context.
  */
 
 import { SummaryResponse, SummaryRequest } from "./types";
 
-const RESULT_KEY = "rent-buy-last-result";
-const INPUTS_KEY = "rent-buy-last-inputs";
+const STORE_KEY = "rent-buy-session";
 
-export function storeResult(result: SummaryResponse, inputs: SummaryRequest): void {
+export interface StoredSession {
+  result: SummaryResponse;
+  inputs: SummaryRequest;
+  cache_key: string | null;
+  data_vintage: string | null;
+  stored_at: number;
+  /** If viewing a saved scenario, its name and id */
+  scenario_name: string | null;
+  scenario_id: string | null;
+}
+
+export function storeResult(
+  result: SummaryResponse,
+  inputs: SummaryRequest,
+  scenario?: { id: string; name: string } | null,
+): void {
   try {
-    localStorage.setItem(RESULT_KEY, JSON.stringify(result));
-    localStorage.setItem(INPUTS_KEY, JSON.stringify(inputs));
+    const session: StoredSession = {
+      result,
+      inputs,
+      cache_key: result.cache_key ?? null,
+      data_vintage: result.data_vintage ?? null,
+      stored_at: Date.now(),
+      scenario_name: scenario?.name ?? null,
+      scenario_id: scenario?.id ?? null,
+    };
+    localStorage.setItem(STORE_KEY, JSON.stringify(session));
   } catch {
     // storage full or blocked
   }
 }
 
-export function loadResult(): { result: SummaryResponse; inputs: SummaryRequest } | null {
+export function loadResult(): StoredSession | null {
   try {
-    const r = localStorage.getItem(RESULT_KEY);
-    const i = localStorage.getItem(INPUTS_KEY);
-    if (r && i) return { result: JSON.parse(r), inputs: JSON.parse(i) };
+    const raw = localStorage.getItem(STORE_KEY);
+    if (raw) return JSON.parse(raw);
   } catch {
     // corrupted or missing
   }

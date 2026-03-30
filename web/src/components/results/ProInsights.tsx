@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { SummaryResponse } from "@/lib/types";
 import { PRO_FEATURES } from "@/lib/premium";
 import ProBadge from "@/components/ui/ProBadge";
@@ -32,9 +33,9 @@ const ICONS: Record<string, React.ReactNode> = {
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1115 0z" />
     </svg>
   ),
-  scenarios: (
+  whatif: (
     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
     </svg>
   ),
   "buying-memo": (
@@ -46,19 +47,19 @@ const ICONS: Record<string, React.ReactNode> = {
 
 const ACCENT: Record<string, string> = {
   "ai-summary": "from-violet-50 to-purple-50 border-violet-100",
-  sensitivity: "from-sky-50 to-blue-50 border-sky-100",
+  sensitivity: "from-cyan-50 to-sky-50 border-cyan-100",
   trend: "from-emerald-50 to-teal-50 border-emerald-100",
+  whatif: "from-sky-50 to-blue-50 border-sky-100",
   "zip-compare": "from-rose-50 to-pink-50 border-rose-100",
-  scenarios: "from-indigo-50 to-blue-50 border-indigo-100",
   "buying-memo": "from-amber-50 to-orange-50 border-amber-100",
 };
 
 const ICON_BG: Record<string, string> = {
   "ai-summary": "bg-violet-100 text-violet-600",
-  sensitivity: "bg-sky-100 text-sky-600",
+  sensitivity: "bg-cyan-100 text-cyan-600",
   trend: "bg-emerald-100 text-emerald-600",
+  whatif: "bg-sky-100 text-sky-600",
   "zip-compare": "bg-rose-100 text-rose-600",
-  scenarios: "bg-indigo-100 text-indigo-600",
   "buying-memo": "bg-amber-100 text-amber-600",
 };
 
@@ -145,24 +146,21 @@ const PREVIEWS: Record<string, React.ReactNode> = {
       <p className="text-[10px] text-gray-400 text-center pt-1">Projected buy advantage by ZIP</p>
     </div>
   ),
-  scenarios: (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 text-xs">
-        <span className="w-2 h-2 rounded-full bg-indigo-400" />
-        <span className="font-medium text-gray-600 flex-1">Downtown 2BR</span>
-        <span className="text-emerald-600 font-medium">Buy +$45k</span>
+  whatif: (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-gray-600">Rates drop 1%</span>
+        <span className="text-emerald-600 font-medium">+$11k vs base</span>
       </div>
-      <div className="flex items-center gap-2 text-xs">
-        <span className="w-2 h-2 rounded-full bg-indigo-300" />
-        <span className="font-medium text-gray-600 flex-1">Suburbs 3BR</span>
-        <span className="text-emerald-600 font-medium">Buy +$82k</span>
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-gray-600">Put 20% down</span>
+        <span className="text-emerald-600 font-medium">+$8k vs base</span>
       </div>
-      <div className="flex items-center gap-2 text-xs">
-        <span className="w-2 h-2 rounded-full bg-indigo-200" />
-        <span className="font-medium text-gray-600 flex-1">Wait 6 months</span>
-        <span className="text-rose-500 font-medium">Rent +$12k</span>
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-gray-600">Market crash</span>
+        <span className="text-rose-500 font-medium">-$45k vs base</span>
       </div>
-      <p className="text-[10px] text-gray-400 text-center pt-1">Save scenarios and get alerts when things change</p>
+      <p className="text-[10px] text-gray-400 text-center pt-1">Common scenarios compared to your base case</p>
     </div>
   ),
   "buying-memo": (
@@ -193,7 +191,7 @@ export default function ProInsights({ result, isPro }: Props) {
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
           {PRO_FEATURES.map((f) => (
-            <a
+            <Link
               key={f.id}
               href={`/insights#${f.id}`}
               className={`rounded-2xl border bg-gradient-to-br p-5 card-hover block ${ACCENT[f.id]}`}
@@ -207,7 +205,7 @@ export default function ProInsights({ result, isPro }: Props) {
                   <p className="text-xs text-gray-400 mt-1">{f.description}</p>
                 </div>
               </div>
-            </a>
+            </Link>
           ))}
         </div>
       </div>
@@ -274,12 +272,12 @@ export default function ProInsights({ result, isPro }: Props) {
         })}
       </div>
       <div className="text-center mt-4">
-        <a
+        <Link
           href="/insights"
           className="text-xs font-medium text-indigo-500 hover:text-indigo-600 transition-colors"
         >
           See all Pro features &rarr;
-        </a>
+        </Link>
       </div>
     </div>
   );

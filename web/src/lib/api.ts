@@ -1,7 +1,15 @@
-import { FormData, SummaryRequest, SummaryResponse, Scenario, ScenarioList, Alert, AlertList } from "./types";
+import { FormData, SummaryRequest, SummaryResponse, Scenario, ScenarioList, Alert, AlertList, WhatIfResponse, SensitivityResponse, TrendResponse, LlmSummaryResponse } from "./types";
 import { getDeviceId } from "./device";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+export function getApiUrl(): string {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+  if (typeof window !== "undefined" && window.location.hostname !== "localhost") {
+    return `http://${window.location.hostname}:8000`;
+  }
+  return "http://localhost:8000";
+}
+
+const API_URL = getApiUrl();
 
 function proHeaders(): Record<string, string> {
   return {
@@ -15,7 +23,7 @@ export function formToRequest(form: FormData): SummaryRequest {
     monthly_rent: form.monthly_rent,
     monthly_budget: form.monthly_budget,
     initial_cash: form.initial_cash,
-    yearly_income: form.yearly_income,
+    yearly_income: form.yearly_income ? Number(form.yearly_income) : undefined,
     filing_status: form.filing_status,
     other_deductions: form.other_deductions,
     risk_appetite: form.risk_appetite,
@@ -81,6 +89,48 @@ export async function postSummary(form: FormData): Promise<SummaryResponse> {
     throw new Error(`API error ${res.status}: ${text}`);
   }
 
+  return res.json();
+}
+
+// --- PRO: Analysis Endpoints ---
+
+export async function postWhatIf(inputs: SummaryRequest): Promise<WhatIfResponse> {
+  const res = await fetch(`${API_URL}/whatif`, {
+    method: "POST",
+    headers: proHeaders(),
+    body: JSON.stringify(inputs),
+  });
+  if (!res.ok) throw new Error(`What-If analysis failed: ${res.status}`);
+  return res.json();
+}
+
+export async function postSensitivity(inputs: SummaryRequest): Promise<SensitivityResponse> {
+  const res = await fetch(`${API_URL}/sensitivity`, {
+    method: "POST",
+    headers: proHeaders(),
+    body: JSON.stringify(inputs),
+  });
+  if (!res.ok) throw new Error(`Sensitivity analysis failed: ${res.status}`);
+  return res.json();
+}
+
+export async function postTrend(inputs: SummaryRequest, maxDelayQuarters = 8): Promise<TrendResponse> {
+  const res = await fetch(`${API_URL}/trend`, {
+    method: "POST",
+    headers: proHeaders(),
+    body: JSON.stringify({ ...inputs, max_delay_quarters: maxDelayQuarters }),
+  });
+  if (!res.ok) throw new Error(`Trend analysis failed: ${res.status}`);
+  return res.json();
+}
+
+export async function postLlmSummary(inputs: SummaryRequest): Promise<LlmSummaryResponse> {
+  const res = await fetch(`${API_URL}/llm-summary`, {
+    method: "POST",
+    headers: proHeaders(),
+    body: JSON.stringify(inputs),
+  });
+  if (!res.ok) throw new Error(`AI summary failed: ${res.status}`);
   return res.json();
 }
 

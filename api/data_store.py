@@ -130,6 +130,20 @@ def init_db():
             FOREIGN KEY (scenario_id) REFERENCES scenarios(id)
         );
         CREATE INDEX IF NOT EXISTS idx_notif_log_device ON notification_log(device_id);
+
+        -- Result cache (transient, shared across users)
+        CREATE TABLE IF NOT EXISTS result_cache (
+            cache_key TEXT PRIMARY KEY,
+            data_vintage TEXT NOT NULL,
+            inputs_json TEXT NOT NULL,
+            summary_json TEXT,
+            sensitivity_json TEXT,
+            trend_json TEXT,
+            zip_compare_json TEXT,
+            llm_summary_json TEXT,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_cache_vintage ON result_cache(data_vintage);
     """)
     conn.close()
 

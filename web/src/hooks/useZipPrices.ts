@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { getApiUrl } from "@/lib/api";
 
 interface ZipInfo {
   price: number;
@@ -13,29 +14,32 @@ interface ZipPriceData {
   zips: Record<string, ZipInfo>;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-
 export function useZipPrices() {
   const [data, setData] = useState<ZipPriceData | null>(null);
   const [loading, setLoading] = useState(false);
   const fetchedRef = useRef(false);
 
-  const ensureLoaded = useCallback(async () => {
-    if (data || fetchedRef.current) return;
+  const doFetch = useCallback(async () => {
+    if (fetchedRef.current) return;
     fetchedRef.current = true;
     setLoading(true);
     try {
-      const res = await fetch(`${API_URL}/data/zip_prices.json`);
+      const res = await fetch(`${getApiUrl()}/data/zip_prices.json`);
       if (res.ok) {
-        const json = await res.json();
-        setData(json);
+        setData(await res.json());
       }
     } catch {
-      // File may not exist yet — silently fail
+      // File may not exist yet
+      fetchedRef.current = false; // allow retry
     } finally {
       setLoading(false);
     }
-  }, [data]);
+  }, []);
+
+  // Load eagerly on mount
+  useEffect(() => {
+    doFetch();
+  }, [doFetch]);
 
   const lookup = useCallback(
     (zip: string): ZipInfo | null => {
@@ -47,5 +51,5 @@ export function useZipPrices() {
 
   const nationalMedian = data?.national_median ?? 277000;
 
-  return { ensureLoaded, lookup, nationalMedian, loading, loaded: !!data };
+  return { ensureLoaded: doFetch, lookup, nationalMedian, loading, loaded: !!data };
 }

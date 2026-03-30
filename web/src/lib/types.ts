@@ -94,6 +94,8 @@ export interface SummaryResponse {
   verdict: string;
   breakeven_month: number | null;
   crossing_count: number;
+  cache_key?: string;
+  data_vintage?: string;
   monthly: MonthlyData[];
   percentiles: Percentiles;
   warnings?: Warning[];
@@ -106,6 +108,8 @@ export interface Scenario {
   name: string;
   inputs: SummaryRequest;
   response: SummaryResponse | null;
+  cache_key: string | null;
+  data_vintage: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -128,11 +132,84 @@ export interface AlertList {
   alerts: Alert[];
 }
 
+// --- Pro Analysis Response Types ---
+
+export interface WhatIfScenario {
+  id: string;
+  name: string;
+  description: string;
+  buyer_net_worth: number;
+  renter_net_worth: number;
+  net_difference: number;
+  delta_from_base: number;
+  breakeven_month: number | null;
+  buy_score: number;
+}
+
+export interface WhatIfResponse {
+  base_net_diff: number;
+  scenarios: WhatIfScenario[];
+}
+
+export interface SensitivityPoint {
+  label: string;
+  param_name: string;
+  param_value: number;
+  buyer_net_worth: number;
+  renter_net_worth: number;
+  net_difference: number;
+  breakeven_month: number | null;
+}
+
+export interface HeatmapCell {
+  x_label: string;
+  y_label: string;
+  x_value: number;
+  y_value: number;
+  net_difference: number;
+  breakeven_month: number | null;
+  buy_score: number;
+}
+
+export interface SensitivityResponse {
+  base_buyer_nw: number;
+  base_renter_nw: number;
+  base_net_diff: number;
+  base_buy_score: number;
+  axes: Record<string, SensitivityPoint[]>;
+  heatmap: { cells: HeatmapCell[]; x_param: string; y_param: string };
+}
+
+export interface TrendPoint {
+  delay_months: number;
+  aggregate_score: number;
+  mortgage_rate_used: number;
+  buyer_net_worth: number;
+  renter_net_worth: number;
+  net_difference: number;
+  breakeven_month: number | null;
+}
+
+export interface TrendResponse {
+  points: TrendPoint[];
+}
+
+export interface LlmSummaryResponse {
+  summary: string;
+  buy_costs_summary: string;
+  buy_pros: string[];
+  rent_pros: string[];
+  buy_costs: string[];
+  rent_costs: string[];
+  verdict: string;
+  score: number;
+}
+
 export interface FormData {
   monthly_rent: number;
   monthly_budget: number;
   initial_cash: number;
-  yearly_income: number;
+  yearly_income: string;
   filing_status: string;
   other_deductions: number;
   risk_appetite: string;

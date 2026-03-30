@@ -1,5 +1,21 @@
 # API Changelog
 
+## 2026-03-29 (continued, part 3)
+
+### New Features
+- **Expanded sensitivity analysis** — 8 configurable 1D axes (was 4 hardcoded): `mortgage_rate`, `house_price`, `down_payment_pct`, `outlook`, `stay_years`, `yearly_income`, `initial_cash`, `risk_appetite`. Request specifies which to run via `axes` field.
+- **Configurable heatmap** — 2D grid now accepts `heatmap_x` and `heatmap_y` to cross any two axes. Default remains rate × price.
+- **`POST /whatif` endpoint** — 9 named what-if scenarios: rate changes, cheaper home, delay purchase, 20% down, crash, stay 5yr, conservative investing. Each returns `delta_from_base` showing the improvement/degradation vs the user's base case. Scenarios that duplicate base are auto-filtered.
+- **`SensitivityRequest`** model extends `SummaryRequest` with `axes`, `heatmap_x`, `heatmap_y`.
+
+## 2026-03-29 (continued, part 2)
+
+### New Features
+- **Result caching layer** (`result_cache.py`). Deterministic simulations with the same inputs + data vintage produce the same results. Cache key = SHA-256(canonical_inputs + data_vintage). Each endpoint's result stored in separate column, populated lazily. ~334x speedup on cache hits (1s → 3ms).
+- **`cache_key` and `data_vintage` in SummaryResponse** — frontend can use these for client-side caching and to detect stale results.
+- **Cache pruning** — entries older than 90 days with no scenario reference are cleaned after data refresh.
+- All PRO endpoints (`/sensitivity`, `/trend`, `/zip-compare`, `/llm-summary`) now cached under the same cache_key.
+
 ## 2026-03-29 (continued)
 
 ### Breaking Changes

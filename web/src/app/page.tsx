@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useEffect } from "react";
+import Link from "next/link";
 import SettingsPanel from "@/components/form/SettingsPanel";
 import ResultsDashboard from "@/components/results/ResultsDashboard";
 import SaveButton from "@/components/scenarios/SaveButton";
@@ -10,10 +11,12 @@ import { usePremium } from "@/hooks/usePremium";
 import { useScenarios } from "@/hooks/useScenarios";
 import { useZipPrices } from "@/hooks/useZipPrices";
 import { formToRequest } from "@/lib/api";
-import { SummaryResponse } from "@/lib/types";
+import QuickStats from "@/components/ui/QuickStats";
+import { storeResult } from "@/lib/resultStore";
+import { SummaryResponse, Scenario } from "@/lib/types";
 
 export default function Home() {
-  const { formData, updateField, result, setResult, loading, error, hasRun, runSimulation, resultsRef } =
+  const { formData, updateField, resetAll, result, setResult, loading, error, hasRun, isDirty, runSimulation, resultsRef } =
     useSimulation();
   const { isPro, toggle: togglePro } = usePremium();
   const scenarioCtx = useScenarios(isPro);
@@ -21,6 +24,22 @@ export default function Home() {
   const settingsRef = useRef<HTMLDivElement>(null);
   const heroButtonRef = useRef<HTMLDivElement>(null);
   const [showBottomBar, setShowBottomBar] = useState(false);
+
+  // Track whether we're viewing a saved scenario vs live results
+  const [viewingScenario, setViewingScenario] = useState<Scenario | null>(null);
+  const [liveResult, setLiveResult] = useState<SummaryResponse | null>(null);
+
+  // When simulation runs, it's a live result — clear any scenario view
+  const displayResult = viewingScenario ? viewingScenario.response : result;
+
+  // Keep liveResult in sync with simulation result
+  const prevResult = useRef(result);
+  if (result !== prevResult.current) {
+    prevResult.current = result;
+    if (result && !viewingScenario) {
+      setLiveResult(result);
+    }
+  }
 
   // Show sticky bottom bar when hero Calculate button scrolls out of view
   useEffect(() => {
@@ -37,17 +56,47 @@ export default function Home() {
   const scrollWithOffset = (ref: React.RefObject<HTMLDivElement | null>) => {
     const el = ref.current;
     if (!el) return;
-    const headerHeight = 60;
-    const top = el.getBoundingClientRect().top + window.scrollY - headerHeight;
-    window.scrollTo({ top, behavior: "smooth" });
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
   const scrollToSettings = () => scrollWithOffset(settingsRef);
   const scrollToResults = () => scrollWithOffset(resultsRef);
 
-  const handleViewResult = (r: SummaryResponse) => {
-    setResult(r);
+  const handleViewScenario = (scenario: Scenario) => {
+    if (result && !viewingScenario) {
+      setLiveResult(result);
+    }
+    setViewingScenario(scenario);
+    if (scenario.response) {
+      setResult(scenario.response);
+      storeResult(scenario.response, scenario.inputs, { id: scenario.id, name: scenario.name });
+    }
     setTimeout(() => scrollToResults(), 50);
+  };
+
+  const handleViewResult = (r: SummaryResponse) => {
+    // Called from ScenarioList "View last result" — find the matching scenario
+    const scenario = scenarioCtx.scenarios.find((s) => s.response === r);
+    if (scenario) {
+      handleViewScenario(scenario);
+    } else {
+      setResult(r);
+      setTimeout(() => scrollToResults(), 50);
+    }
+  };
+
+  const dismissScenarioView = () => {
+    setViewingScenario(null);
+    if (liveResult) {
+      setResult(liveResult);
+    }
+  };
+
+  // Clear scenario view when user runs a new simulation
+  const handleRunSimulation = () => {
+    setViewingScenario(null);
+    setLiveResult(null);
+    runSimulation();
   };
 
   return (
@@ -186,10 +235,10 @@ export default function Home() {
             })()}
 
             <div ref={heroButtonRef} />
-            <div className={`flex flex-col sm:flex-row gap-2 justify-center transition-opacity duration-200 ${showBottomBar || result ? "opacity-0 pointer-events-none h-0 overflow-hidden" : ""}`}>
+            <div className={`flex flex-col sm:flex-row gap-2 justify-center transition-opacity duration-200 ${showBottomBar || displayResult ? "opacity-0 pointer-events-none h-0 overflow-hidden" : ""}`}>
               <button
-                onClick={() => runSimulation()}
-                disabled={loading || formData.monthly_rent <= 0 || formData.monthly_budget <= 0}
+                onClick={handleRunSimulation}
+                disabled={loading || formData.monthly_rent <= 0 || formData.monthly_budget <= 0 || (hasRun && !isDirty)}
                 className="px-8 py-3 text-sm font-semibold text-white rounded-xl
                   bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-600 hover:to-violet-600
                   disabled:opacity-40 disabled:cursor-not-allowed
@@ -209,9 +258,10 @@ export default function Home() {
               </button>
               <button
                 onClick={scrollToSettings}
-                className="px-6 py-3 text-sm font-medium text-gray-500 rounded-xl
-                  border border-gray-200 hover:border-gray-300 hover:text-gray-700
-                  transition-all flex items-center justify-center gap-2"
+                className="px-6 py-3 text-sm font-semibold text-white rounded-xl
+                  bg-gradient-to-r from-sky-400 to-cyan-400 hover:from-sky-500 hover:to-cyan-500
+                  shadow-lg shadow-sky-200 hover:shadow-sky-300
+                  transition-all active:scale-[0.98] flex items-center justify-center gap-2"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
@@ -224,19 +274,44 @@ export default function Home() {
           </div>
         </section>
 
-        {/* Results + Save button */}
-        <div ref={resultsRef}>
-          {result && isPro && (
+        {/* Results + context banner */}
+        <div ref={resultsRef} className="scroll-mt-16">
+          {/* Viewing indicator */}
+          {viewingScenario && (
+            <div className="flex items-center gap-3 mb-3 rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-2.5">
+              <svg className="w-4 h-4 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+              </svg>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-indigo-700 truncate">
+                  Viewing: {viewingScenario.name}
+                </p>
+                <p className="text-[10px] text-indigo-400">
+                  Saved {new Date(viewingScenario.created_at * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                  {viewingScenario.data_vintage && ` · Data: ${viewingScenario.data_vintage}`}
+                </p>
+              </div>
+              <button
+                onClick={dismissScenarioView}
+                className="text-xs text-indigo-500 hover:text-indigo-700 font-medium px-2 py-1 rounded-lg
+                  hover:bg-indigo-100/50 transition-colors shrink-0"
+              >
+                {liveResult ? "Back to live results" : "Dismiss"}
+              </button>
+            </div>
+          )}
+          {/* Save button — only for live results */}
+          {displayResult && isPro && !viewingScenario && (
             <div className="flex justify-end mb-2">
               <SaveButton
                 inputs={formToRequest(formData)}
-                response={result}
+                response={displayResult}
                 onSave={scenarioCtx.save}
               />
             </div>
           )}
           <ResultsDashboard
-            result={result} loading={loading} error={error} isPro={isPro}
+            result={displayResult ?? null} loading={loading} error={error} isPro={isPro}
             sellMonth={formData.stay_years < formData.years ? formData.buy_delay_months + formData.stay_years * 12 : null}
           />
         </div>
@@ -254,15 +329,22 @@ export default function Home() {
               onRerun={scenarioCtx.rerun}
               onDelete={scenarioCtx.remove}
               onViewResult={handleViewResult}
+              onViewScenario={handleViewScenario}
             />
           </section>
         )}
 
         {/* Settings */}
-        <section ref={settingsRef} className="pb-4">
+        <section ref={settingsRef} className="pb-4 scroll-mt-32">
           <div className="flex items-center gap-3 mb-3">
             <h2 className="text-sm font-semibold text-gray-500">Settings</h2>
             <div className="h-px flex-1 bg-gray-200/60" />
+            <button
+              onClick={resetAll}
+              className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              Reset all
+            </button>
           </div>
           <SettingsPanel
             formData={formData} updateField={updateField} hasRun={hasRun} isPro={isPro}
@@ -310,35 +392,26 @@ export default function Home() {
       {/* Sticky bottom bar — appears when hero buttons scroll out of view */}
       <div
         className={`fixed bottom-0 inset-x-0 z-50 safe-bottom
-          transition-all duration-200 ${showBottomBar || result ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 pointer-events-none"}`}
+          transition-all duration-200 ${showBottomBar || displayResult ? "translate-y-0 opacity-100" : "translate-y-full opacity-0 pointer-events-none"}`}
       >
         <div className="bg-white/80 backdrop-blur-md border-t border-gray-100">
-          {/* Quick reference stats — only when results exist */}
-          {result && (
+          {/* Quick reference stats */}
+          {displayResult && (
             <div className="max-w-5xl mx-auto px-4 pt-2 pb-0">
-              <div className="flex items-center justify-center gap-3 sm:gap-5 text-[10px] text-gray-400">
-                <span>
-                  <span className="text-gray-500 font-medium">${result.house_price.toLocaleString()}</span>
-                  {" "}@ {(result.mortgage_rate * 100).toFixed(1)}%
-                </span>
-                <span className="text-gray-200">|</span>
-                <span>
-                  <span className="text-gray-500 font-medium">${Math.round(result.monthly[0]?.total_housing_cost ?? 0).toLocaleString()}</span>/mo
-                </span>
-                <span className="text-gray-200">|</span>
-                <span className={result.avg_buyer_net_worth > result.avg_renter_net_worth ? "text-emerald-500" : "text-rose-500"}>
-                  {result.avg_buyer_net_worth > result.avg_renter_net_worth ? "Buy" : "Rent"} wins by ${Math.abs(Math.round(result.avg_buyer_net_worth - result.avg_renter_net_worth)).toLocaleString()}
-                </span>
-              </div>
+              <QuickStats
+                result={displayResult}
+                scenarioName={viewingScenario?.name}
+                source={viewingScenario ? "saved" : hasRun ? "live" : null}
+              />
             </div>
           )}
           {/* Action buttons */}
-          <div className="max-w-5xl mx-auto px-4 py-2.5 flex gap-3">
+          <div className="max-w-5xl mx-auto px-4 py-2.5 flex gap-2">
             <button
               onClick={scrollToSettings}
-              className="flex-1 py-2.5 text-sm font-semibold rounded-xl
-                border border-gray-200 text-gray-600
-                hover:border-gray-300 hover:text-gray-800 hover:bg-gray-50
+              className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl
+                bg-gradient-to-r from-sky-400 to-cyan-400 hover:from-sky-500 hover:to-cyan-500
+                shadow-lg shadow-sky-200
                 transition-all active:scale-[0.98]
                 flex items-center justify-center gap-2"
             >
@@ -350,8 +423,8 @@ export default function Home() {
               Settings
             </button>
             <button
-              onClick={() => { runSimulation(); if (hasRun) scrollToResults(); }}
-              disabled={loading || formData.monthly_rent <= 0 || formData.monthly_budget <= 0}
+              onClick={() => { handleRunSimulation(); if (hasRun) scrollToResults(); }}
+              disabled={loading || formData.monthly_rent <= 0 || formData.monthly_budget <= 0 || (hasRun && !isDirty)}
               className="flex-1 py-2.5 text-sm font-semibold text-white rounded-xl
                 bg-gradient-to-r from-indigo-500 to-violet-500 hover:from-indigo-600 hover:to-violet-600
                 disabled:opacity-40 disabled:cursor-not-allowed
@@ -377,6 +450,36 @@ export default function Home() {
                 </>
               )}
             </button>
+            {/* Pro quick actions: Save + Insights */}
+            {isPro && displayResult && !viewingScenario && (
+              <button
+                onClick={() => {
+                  const name = `Scenario ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
+                  scenarioCtx.save(name, formToRequest(formData), displayResult);
+                }}
+                className="py-2.5 px-3 rounded-xl border border-gray-200 text-gray-500
+                  hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50/50
+                  transition-all active:scale-[0.98]"
+                title="Quick save scenario"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
+                </svg>
+              </button>
+            )}
+            {isPro && displayResult && (
+              <Link
+                href="/insights"
+                className="py-2.5 px-3 rounded-xl border border-gray-200 text-gray-500
+                  hover:border-violet-300 hover:text-violet-600 hover:bg-violet-50/50
+                  transition-all active:scale-[0.98] flex items-center"
+                title="Pro Insights"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                </svg>
+              </Link>
+            )}
           </div>
         </div>
       </div>
