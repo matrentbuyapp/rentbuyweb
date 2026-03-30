@@ -302,6 +302,12 @@ def generate_stock_path(
     return np.exp(log_returns)
 
 
+# Long-term national home appreciation: ~3.5%/yr (historical average since 1991, Case-Shiller).
+# Used as mean-reversion anchor for drift beyond 5 years.
+_LT_HOME_APPRECIATION_ANNUAL = 0.035
+_LT_HOME_APPRECIATION_MONTHLY = np.log(1 + _LT_HOME_APPRECIATION_ANNUAL) / 12
+
+
 def generate_home_appreciation_path(
     hist_cumulative: np.ndarray,
     zip_cumulative: Optional[np.ndarray],
@@ -312,7 +318,12 @@ def generate_home_appreciation_path(
     """Generate a random home value path as a cumulative index (starting at 1.0).
 
     If ZIP-level forecast is available, blends it with national HPI.
-    Adds noise per simulation to create spread.
+
+    Drift handling:
+      - Months 0-60: use historical/ZIP drift (market has momentum)
+      - Months 60+: blend toward long-term national average (~3.5%/yr)
+      - This prevents extrapolating a historical bull run (e.g. 2020-2025)
+        into the distant future.
     """
     # Use ZIP forecast if available, blend with national HPI
     if zip_cumulative is not None:
@@ -329,8 +340,22 @@ def generate_home_appreciation_path(
             extra[i] = base[-1] * (last_growth ** (i + 1))
         base = np.concatenate([base, extra])
 
-    # Convert to log returns, add noise, reconstruct cumulative
+    # Convert to log returns
     log_returns = np.diff(np.log(np.clip(base[:n_months], 0.001, None)))
+
+    # Blend drift toward long-term average beyond month 60
+    # 0-60: full historical drift. 60-120: linear blend to LT average.
+    blend_start = 60
+    blend_end = 120
+    for i in range(len(log_returns)):
+        if i >= blend_end:
+            # Fully mean-reverted: use long-term average as drift
+            log_returns[i] = _LT_HOME_APPRECIATION_MONTHLY
+        elif i >= blend_start:
+            # Linear blend from historical to long-term
+            t = (i - blend_start) / (blend_end - blend_start)
+            log_returns[i] = (1 - t) * log_returns[i] + t * _LT_HOME_APPRECIATION_MONTHLY
+
     monthly_vol = annual_vol / np.sqrt(12)
     noise = rng.normal(0, monthly_vol, len(log_returns))
 

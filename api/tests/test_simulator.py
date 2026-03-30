@@ -245,3 +245,108 @@ class TestMCSpread:
         _paths_cache.clear()
         p2 = get_cached_paths(synthetic_data, None, 120, 50)
         np.testing.assert_array_equal(stock_copy, p2.stock_paths)
+
+
+# ---------------------------------------------------------------------------
+# Sell event (stay_years / 3-phase model)
+# ---------------------------------------------------------------------------
+
+class TestSellEvent:
+    """Tests for the 3-phase simulation: pre-purchase → owning → post-sell."""
+
+    def _make_inputs(self, **overrides):
+        from models import SimulationInput, UserProfile, PropertyParams, MortgageParams, SimulationConfig
+        user_kw = {
+            "monthly_rent": 2000, "monthly_budget": 4000, "initial_cash": 150_000,
+            "yearly_income": 100_000, "filing_status": "single", "risk_appetite": "moderate",
+        }
+        prop_kw = {
+            "house_price": 400_000, "down_payment_pct": 0.20, "closing_cost_pct": 0.03,
+            "maintenance_rate": 0.01, "insurance_annual": 2000, "sell_cost_pct": 0.06,
+            "move_in_cost": 0,
+        }
+        mort_kw = {"rate": 0.065, "term_years": 30, "credit_quality": "good"}
+        cfg_kw = {"years": 10, "num_simulations": 50, "buy_delay_months": 0, "stay_years": None}
+        for k, v in overrides.items():
+            for d in [user_kw, prop_kw, mort_kw, cfg_kw]:
+                if k in d:
+                    d[k] = v
+        return SimulationInput(
+            user=UserProfile(**user_kw), property=PropertyParams(**prop_kw),
+            mortgage=MortgageParams(**mort_kw), config=SimulationConfig(**cfg_kw),
+        )
+
+    def test_stay_years_triggers_sell(self, synthetic_data):
+        """With stay_years=5, mortgage drops to 0 after month 60."""
+        inputs = self._make_inputs(stay_years=5)
+        result = run_simulation(inputs, synthetic_data, housing_crash_prob=0, stock_crash_prob=0)
+        m = result.monthly
+
+        # Month 59 (last owning month) should have mortgage
+        assert m[59].mortgage_payment > 0
+
+        # Month 60+ (post-sell) should have zero mortgage
+        assert m[60].mortgage_payment == 0
+        assert m[90].mortgage_payment == 0
+
+    def test_post_sell_equity_is_zero(self, synthetic_data):
+        """After sell, buyer equity drops to 0."""
+        inputs = self._make_inputs(stay_years=5)
+        result = run_simulation(inputs, synthetic_data, housing_crash_prob=0, stock_crash_prob=0)
+        m = result.monthly
+
+        # During ownership, equity should be positive
+        assert m[30].buyer_equity > 0
+
+        # After sell, equity is zero
+        assert m[60].buyer_equity == 0
+        assert m[119].buyer_equity == 0
+
+    def test_post_sell_buyer_pays_rent(self, synthetic_data):
+        """After sell, buyer's total_housing_cost should equal rent."""
+        inputs = self._make_inputs(stay_years=5)
+        result = run_simulation(inputs, synthetic_data, housing_crash_prob=0, stock_crash_prob=0)
+        m = result.monthly
+
+        # Post-sell: housing cost should be close to rent
+        assert abs(m[70].total_housing_cost - m[70].rent) < 1.0
+
+    def test_sell_proceeds_boost_investment(self, synthetic_data):
+        """At sell month, buyer_investment should jump from sale proceeds."""
+        inputs = self._make_inputs(stay_years=5)
+        result = run_simulation(inputs, synthetic_data, housing_crash_prob=0, stock_crash_prob=0)
+        m = result.monthly
+
+        # Investment should jump at sell event (month 60)
+        # The buyer was paying mortgage before, now gets equity as cash
+        assert m[61].buyer_investment > m[58].buyer_investment
+
+    def test_stay_years_none_means_full_horizon(self, synthetic_data):
+        """stay_years=None → buyer owns for entire horizon."""
+        inputs = self._make_inputs(stay_years=None)
+        result = run_simulation(inputs, synthetic_data, housing_crash_prob=0, stock_crash_prob=0)
+        m = result.monthly
+
+        # Should still have mortgage and equity at end
+        assert m[119].mortgage_payment > 0
+        assert m[119].buyer_equity > 0
+
+    def test_buy_delay_plus_stay(self, synthetic_data):
+        """buy_delay=12, stay_years=3: Phase1 (0-11), Phase2 (12-47), Phase3 (48+)."""
+        inputs = self._make_inputs(buy_delay_months=12, stay_years=3)
+        result = run_simulation(inputs, synthetic_data, housing_crash_prob=0, stock_crash_prob=0)
+        m = result.monthly
+
+        # Phase 1: pre-purchase, no mortgage
+        assert m[5].mortgage_payment == 0
+        assert m[5].buyer_equity == 0
+
+        # Phase 2: owning (month 12-47)
+        assert m[20].mortgage_payment > 0
+        assert m[20].buyer_equity > 0
+
+        # Phase 3: post-sell (month 48+)
+        assert m[50].mortgage_payment == 0
+        assert m[50].buyer_equity == 0
+        # But buyer_investment should be positive (has sale proceeds)
+        assert m[50].buyer_investment > 0

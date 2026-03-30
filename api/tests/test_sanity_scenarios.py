@@ -561,6 +561,116 @@ class TestAggressiveInvestor:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# Granular number verification — exact math checks
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestGranularMath:
+    """Verify actual dollar amounts match manual mortgage calculations."""
+
+    def test_mortgage_payment_matches_formula(self):
+        """P&I should match the standard amortization formula."""
+        for name, dp, price, rate, term in [
+            ("miami_savings_only", 0.30, 400_000, 0.065, 30),
+            ("chicago_15yr_mortgage", 0.20, 500_000, None, 15),
+            ("sf_tech", 0.05, 1_200_000, 0.065, 30),
+        ]:
+            r = _run(SCENARIOS[name])
+            loan = price * (1 - dp)
+            actual_rate = r.mortgage_rate_used
+            r_mo = actual_rate / 12
+            n = term * 12
+            expected = loan * (r_mo * (1 + r_mo) ** n) / ((1 + r_mo) ** n - 1)
+            actual = r.monthly[0].mortgage_payment
+            assert abs(expected - actual) < 1.0, \
+                f"{name}: expected P&I ${expected:,.2f}, got ${actual:,.2f}"
+
+    def test_interest_plus_principal_equals_payment(self):
+        """Interest + principal should equal the total payment every month."""
+        for name in ["miami_savings_only", "chicago_15yr_mortgage", "nyc_couple"]:
+            r = _run(SCENARIOS[name])
+            for i, m in enumerate(r.monthly):
+                if m.mortgage_payment > 0:
+                    gap = abs(m.mortgage_payment - m.interest_payment - m.principal_payment)
+                    assert gap < 0.01, f"{name} month {i}: P&I mismatch by ${gap:.2f}"
+
+    def test_buyer_nw_identity(self):
+        """buyer_net_worth must equal buyer_equity + buyer_investment for all scenarios."""
+        for name in SCENARIOS:
+            r = _run(SCENARIOS[name])
+            for i, m in enumerate(r.monthly):
+                gap = abs(m.buyer_net_worth - (m.buyer_equity + m.buyer_investment))
+                assert gap < 1.0, f"{name} month {i}: NW identity off by ${gap:.2f}"
+
+    def test_equity_formula(self):
+        """Equity = home_value * (1 - sell_cost) - remaining_balance during ownership."""
+        for name in ["denver_couple", "austin_tech"]:
+            r = _run(SCENARIOS[name])
+            for i, m in enumerate(r.monthly):
+                if m.mortgage_payment > 0:
+                    expected = m.home_value * (1 - 0.06) - m.remaining_balance
+                    assert abs(expected - m.buyer_equity) < 1.0, \
+                        f"{name} month {i}: equity ${m.buyer_equity:,.0f} vs expected ${expected:,.0f}"
+
+    def test_cumulative_cost_matches_sum(self):
+        """Cumulative costs should equal the running sum of monthly costs."""
+        for name in ["dc_sell_after_5yr", "phoenix_delay_12mo", "chicago_15yr_mortgage"]:
+            r = _run(SCENARIOS[name])
+            cum_buy = 0
+            cum_rent = 0
+            for i, m in enumerate(r.monthly):
+                cum_buy += m.total_housing_cost
+                cum_rent += m.rent
+                assert abs(m.cumulative_buy_cost - cum_buy) < 1.0, \
+                    f"{name} month {i}: cum_buy off"
+                assert abs(m.cumulative_rent_cost - cum_rent) < 1.0, \
+                    f"{name} month {i}: cum_rent off"
+
+    def test_total_cost_component_sum(self):
+        """total_housing_cost = mortgage + maint + tax + ins + pmi - tax_savings."""
+        for name in ["seattle_swe", "nashville_nurse", "la_entertainment"]:
+            r = _run(SCENARIOS[name])
+            for i, m in enumerate(r.monthly):
+                if m.mortgage_payment > 0:
+                    expected = (m.mortgage_payment + m.maintenance + m.property_tax
+                                + m.insurance + m.pmi - m.tax_savings)
+                    gap = abs(m.total_housing_cost - expected)
+                    assert gap < 0.01, f"{name} month {i}: total_cost off by ${gap:.2f}"
+
+    def test_balance_decreases_monotonically(self):
+        """Remaining mortgage balance should decrease every month during ownership."""
+        for name in ["miami_savings_only", "chicago_15yr_mortgage"]:
+            r = _run(SCENARIOS[name])
+            balances = [m.remaining_balance for m in r.monthly if m.mortgage_payment > 0]
+            for i in range(1, len(balances)):
+                assert balances[i] < balances[i - 1] + 0.01, \
+                    f"{name}: balance increased at month {i}"
+
+    def test_sell_event_math(self):
+        """At sell month, buyer_inv should jump by approximately the equity amount."""
+        r = _run(SCENARIOS["dc_sell_after_5yr"])
+        m59 = r.monthly[59]  # last owning month
+        m60 = r.monthly[60]  # first post-sell month
+        # Equity goes to 0
+        assert m60.buyer_equity == 0
+        assert m60.mortgage_payment == 0
+        # Investment should have jumped by roughly the equity amount
+        # (not exact due to stock return applied same month)
+        jump = m60.buyer_investment - m59.buyer_investment
+        assert jump > m59.buyer_equity * 0.8, \
+            f"Investment jump ${jump:,.0f} too small vs equity ${m59.buyer_equity:,.0f}"
+
+    def test_savings_only_renter_deterministic(self):
+        """Savings-only renter NW should be reproducible from first principles."""
+        r = _run(SCENARIOS["miami_savings_only"])
+        rate = 1.045 ** (1 / 12)
+        renter = 200_000.0
+        for m in r.monthly:
+            renter = renter * rate + (m.budget - m.rent)
+        assert abs(renter - r.monthly[-1].renter_net_worth) < 100, \
+            f"Manual renter ${renter:,.0f} vs engine ${r.monthly[-1].renter_net_worth:,.0f}"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # Summary table — all scenarios including new ones
 # ═══════════════════════════════════════════════════════════════════════════
 

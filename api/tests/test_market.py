@@ -6,6 +6,7 @@ from market import (
     generate_stock_path,
     generate_home_appreciation_path,
     generate_rent_path,
+    generate_rate_path,
     apply_crash,
     _to_mom_growth,
     _to_cumulative,
@@ -291,3 +292,121 @@ class TestCrash:
         rng = np.random.default_rng(42)
         apply_crash(path, 1.0, 0.20, 24, rng, is_cumulative=True, drawdown_months=6)
         np.testing.assert_array_equal(path, original)
+
+
+# ---------------------------------------------------------------------------
+# Rate path generation
+# ---------------------------------------------------------------------------
+
+class TestRatePath:
+    """Tests for generate_rate_path — stochastic mortgage rate forecasting."""
+
+    @pytest.fixture
+    def hist_rates(self):
+        """Synthetic historical rates: 6.5% with slight downtrend."""
+        n = 180
+        trend = np.linspace(7.0, 6.5, n)
+        noise = np.random.default_rng(99).normal(0, 0.05, n)
+        return trend + noise
+
+    def test_shape_and_range(self, hist_rates):
+        rng = np.random.default_rng(42)
+        path = generate_rate_path(hist_rates, 120, rng)
+        assert len(path) == 120
+        assert np.all(path >= 1.0)
+        assert np.all(path <= 15.0)
+
+    def test_deterministic(self, hist_rates):
+        p1 = generate_rate_path(hist_rates, 120, np.random.default_rng(42))
+        p2 = generate_rate_path(hist_rates, 120, np.random.default_rng(42))
+        np.testing.assert_array_equal(p1, p2)
+
+    def test_different_seeds_differ(self, hist_rates):
+        p1 = generate_rate_path(hist_rates, 120, np.random.default_rng(42))
+        p2 = generate_rate_path(hist_rates, 120, np.random.default_rng(99))
+        assert not np.allclose(p1, p2)
+
+    def test_starts_near_current(self, hist_rates):
+        """First value should be close to the last historical rate."""
+        rng = np.random.default_rng(42)
+        path = generate_rate_path(hist_rates, 120, rng)
+        current = hist_rates[-1]
+        # Within 1 percentage point of current rate
+        assert abs(path[0] - current) < 1.0
+
+    def test_mean_reverts_long_run(self, hist_rates):
+        """Over many simulations, median endpoint should move toward long-term average."""
+        current = hist_rates[-1]
+        avg_20y = hist_rates.mean()
+        endpoints = []
+        for seed in range(200):
+            rng = np.random.default_rng(seed)
+            path = generate_rate_path(hist_rates, 180, rng)
+            endpoints.append(path[-1])
+        median_endpoint = np.median(endpoints)
+        # Should be between current and long-term avg (or past it)
+        if current > avg_20y:
+            assert median_endpoint < current  # pulled down toward avg
+        else:
+            assert median_endpoint > current  # pulled up toward avg
+
+    def test_rate_target_override(self, hist_rates):
+        """Custom rate_target should attract long-run path."""
+        target = 0.04  # 4% as decimal, function converts to percent internally
+        endpoints = []
+        for seed in range(200):
+            rng = np.random.default_rng(seed)
+            path = generate_rate_path(hist_rates, 180, rng, rate_target=target)
+            endpoints.append(path[-1])
+        median_endpoint = np.median(endpoints)
+        # Should be closer to 4.0 (percent) than to current ~6.5
+        assert abs(median_endpoint - 4.0) < abs(median_endpoint - hist_rates[-1])
+
+    def test_volatility_scale(self, hist_rates):
+        """Higher volatility scale → wider spread."""
+        endpoints_low = []
+        endpoints_high = []
+        for seed in range(200):
+            rng1 = np.random.default_rng(seed)
+            rng2 = np.random.default_rng(seed)
+            p_low = generate_rate_path(hist_rates, 120, rng1, rate_volatility_scale=0.5)
+            p_high = generate_rate_path(hist_rates, 120, rng2, rate_volatility_scale=2.0)
+            endpoints_low.append(p_low[-1])
+            endpoints_high.append(p_high[-1])
+        std_low = np.std(endpoints_low)
+        std_high = np.std(endpoints_high)
+        assert std_high > std_low
+
+
+# ---------------------------------------------------------------------------
+# MarketOutlook presets
+# ---------------------------------------------------------------------------
+
+class TestMarketOutlookPresets:
+    def test_historical_is_neutral(self):
+        from models import MarketOutlook
+        o = MarketOutlook.from_preset("historical")
+        assert o.volatility_scale == 1.0
+        assert o.housing_crash_prob == 0.0
+        assert o.stock_crash_prob == 0.0
+
+    def test_crisis_is_severe(self):
+        from models import MarketOutlook
+        o = MarketOutlook.from_preset("crisis")
+        assert o.volatility_scale > 1.0
+        assert o.housing_crash_prob >= 0.50
+        assert o.stock_crash_prob >= 0.50
+        assert o.housing_crash_drop >= 0.30
+
+    def test_unknown_preset_falls_back_to_historical(self):
+        from models import MarketOutlook
+        o = MarketOutlook.from_preset("nonexistent")
+        h = MarketOutlook.from_preset("historical")
+        assert o.volatility_scale == h.volatility_scale
+        assert o.housing_crash_prob == h.housing_crash_prob
+
+    def test_presets_ordered_by_severity(self):
+        from models import MarketOutlook
+        presets = ["optimistic", "historical", "cautious", "pessimistic", "crisis"]
+        vol_scales = [MarketOutlook.from_preset(p).volatility_scale for p in presets]
+        assert vol_scales == sorted(vol_scales)

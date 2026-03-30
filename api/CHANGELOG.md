@@ -1,5 +1,15 @@
 # API Changelog
 
+## 2026-03-29 (continued, part 4)
+
+### Improvements
+- **Home appreciation mean reversion** — Historical HPI drift (which includes the 2020-2025 boom at ~8%/yr) now blends toward the long-term national average (3.5%/yr, Case-Shiller since 1991) beyond year 5. Months 0-60: full historical drift. 60-120: linear blend. 120+: long-term average. This prevents 15-year scenarios from inheriting unrealistic 8-9%/yr appreciation. 10-year scenarios see moderate impact (blend starts at month 60).
+
+### Test Coverage
+- **Granular math tests** — 9 new tests verifying exact dollar amounts: P&I matches formula, interest+principal=payment, NW identity, equity formula, cumulative cost sums, component sums, balance monotonicity, sell event math, savings-only renter reproducibility.
+- **10 new real-life scenarios** — DC sell after 5yr, Phoenix delay 12mo, Miami savings-only, Chicago 15yr mortgage, Raleigh 3yr horizon, Houston 15yr horizon, Minneapolis pessimist, San Diego aggressive, Detroit 7yr stay, NYC delay+short stay.
+- Total: 453 tests, all passing.
+
 ## 2026-03-29 (continued, part 3)
 
 ### New Features
