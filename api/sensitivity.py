@@ -324,20 +324,17 @@ class WhatIfScenario:
 
 
 # Predefined scenario definitions: (id, name, description, apply_fn)
-def _whatif_defs(base_result, inputs: SimulationInput) -> list[tuple]:
+def _whatif_defs(base_result, inputs: SimulationInput, include_extended: bool = False) -> list[tuple]:
     """Return list of (id, name, description, apply_fn) tuples."""
     base_rate = base_result.mortgage_rate_used
     base_price = base_result.house_price_used
     from models import MarketOutlook
 
+    # Default scenarios — shown to all users
     defs = [
         ("rates_drop_1pct", "Rates drop 1%",
          f"Mortgage rate falls to {base_rate - 0.01:.1%}",
          lambda v: setattr(v.mortgage, 'rate', base_rate - 0.01)),
-
-        ("rates_drop_2pct", "Rates drop 2%",
-         f"Mortgage rate falls to {base_rate - 0.02:.1%}",
-         lambda v: setattr(v.mortgage, 'rate', base_rate - 0.02)),
 
         ("rates_rise_1pct", "Rates rise 1%",
          f"Mortgage rate climbs to {base_rate + 0.01:.1%}",
@@ -351,13 +348,20 @@ def _whatif_defs(base_result, inputs: SimulationInput) -> list[tuple]:
          "Keep renting and saving for 24 months before buying",
          lambda v: setattr(v.config, 'buy_delay_months', 24)),
 
-        ("20pct_down", "Put 20% down",
-         "Larger down payment eliminates PMI",
-         lambda v: setattr(v.property, 'down_payment_pct', 0.20)),
-
         ("crash_next_year", "Market crash next year",
          "Pessimistic outlook with 25% housing + 25% stock crash probability",
          lambda v: setattr(v, 'outlook', MarketOutlook.from_preset("pessimistic"))),
+    ]
+
+    # Extended scenarios — available via scenario_ids but not in the default set
+    _extended = [
+        ("rates_drop_2pct", "Rates drop 2%",
+         f"Mortgage rate falls to {base_rate - 0.02:.1%}",
+         lambda v: setattr(v.mortgage, 'rate', base_rate - 0.02)),
+
+        ("20pct_down", "Put 20% down",
+         "Larger down payment eliminates PMI",
+         lambda v: setattr(v.property, 'down_payment_pct', 0.20)),
 
         ("stay_5_sell", "Stay 5 years then sell",
          "Own for 5 years, sell, rent and invest the rest",
@@ -367,6 +371,10 @@ def _whatif_defs(base_result, inputs: SimulationInput) -> list[tuple]:
          "Don't invest surplus in stocks — HYSA at 4.5% only",
          lambda v: setattr(v.user, 'risk_appetite', 'savings_only')),
     ]
+
+    # Include extended scenarios when explicitly requested
+    if include_extended:
+        defs = defs + _extended
 
     # Filter out scenarios that duplicate the base case
     if inputs.config.buy_delay_months >= 24:
@@ -392,7 +400,7 @@ def run_whatif_scenarios(
 
     base = run_simulation(inputs, data)
     base_diff = base.avg_buyer_net_worth - base.avg_renter_net_worth
-    defs = _whatif_defs(base, inputs)
+    defs = _whatif_defs(base, inputs, include_extended=bool(scenario_ids))
 
     if scenario_ids:
         defs = [(i, n, d, f) for i, n, d, f in defs if i in scenario_ids]

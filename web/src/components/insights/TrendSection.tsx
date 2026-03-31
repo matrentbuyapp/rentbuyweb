@@ -31,9 +31,12 @@ export default function TrendSection({ data, loading, onLoad }: Props) {
 
   if (!data || data.points.length === 0) return null;
 
-  const best = data.points.reduce((a, b) => a.net_difference > b.net_difference ? a : b);
-  const now = data.points[0];
-  const maxAbs = Math.max(...data.points.map((p) => Math.abs(p.net_difference)), 1);
+  // Use delta_from_now if available (0 = buy now baseline, positive = waiting helps)
+  const hasDelta = data.points[0]?.delta_from_now !== undefined;
+  const getValue = (p: typeof data.points[0]) => hasDelta ? (p.delta_from_now ?? 0) : p.net_difference;
+
+  const best = data.points.reduce((a, b) => getValue(a) > getValue(b) ? a : b);
+  const maxAbs = Math.max(...data.points.map((p) => Math.abs(getValue(p))), 1);
 
   return (
     <div className="space-y-3">
@@ -45,19 +48,23 @@ export default function TrendSection({ data, loading, onLoad }: Props) {
           ) : (
             <>
               <span className="font-semibold text-emerald-600">Waiting {best.delay_months} months</span> gives the best outcome
-              {now.net_difference !== best.net_difference && (
-                <> — {formatCurrency(best.net_difference - now.net_difference)} better than buying now</>
+              {hasDelta && best.delta_from_now != null && best.delta_from_now > 0 && (
+                <> — {formatCurrency(best.delta_from_now)} better than buying now</>
+              )}
+              {!hasDelta && getValue(best) !== getValue(data.points[0]) && (
+                <> — {formatCurrency(getValue(best) - getValue(data.points[0]))} better than buying now</>
               )}.
             </>
           )}
         </p>
       </div>
 
-      {/* Bar chart */}
+      {/* Bar chart — 0 = buy now baseline when using delta_from_now */}
       <div className="space-y-1">
         {data.points.map((p) => {
+          const val = getValue(p);
           const isBest = p.delay_months === best.delay_months;
-          const pct = Math.abs(p.net_difference) / maxAbs * 100;
+          const pct = maxAbs > 0 ? Math.abs(val) / maxAbs * 100 : 0;
 
           return (
             <div key={p.delay_months} className="flex items-center gap-2">
@@ -67,15 +74,15 @@ export default function TrendSection({ data, loading, onLoad }: Props) {
               <div className="flex-1 h-5 bg-gray-50 rounded-full overflow-hidden relative">
                 <div className="absolute left-1/2 top-0 bottom-0 w-px bg-gray-200" />
                 <div
-                  className={`absolute top-0.5 bottom-0.5 rounded-full transition-all ${p.net_difference >= 0 ? "bg-emerald-400" : "bg-rose-400"} ${isBest ? "opacity-100" : "opacity-50"}`}
+                  className={`absolute top-0.5 bottom-0.5 rounded-full transition-all ${val >= 0 ? "bg-emerald-400" : "bg-rose-400"} ${isBest ? "opacity-100" : "opacity-50"}`}
                   style={{
                     width: `${pct / 2}%`,
-                    ...(p.net_difference >= 0 ? { left: "50%" } : { right: "50%" }),
+                    ...(val >= 0 ? { left: "50%" } : { right: "50%" }),
                   }}
                 />
               </div>
-              <span className={`text-[10px] w-20 text-right shrink-0 font-medium ${p.net_difference >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
-                {formatCurrency(p.net_difference)}
+              <span className={`text-[10px] w-20 text-right shrink-0 font-medium ${val >= 0 ? "text-emerald-600" : "text-rose-500"}`}>
+                {val > 0 ? "+" : ""}{formatCurrency(val)}
               </span>
               <span className="text-[10px] text-gray-400 w-10 text-right shrink-0">
                 {(p.mortgage_rate_used * 100).toFixed(1)}%
@@ -85,7 +92,9 @@ export default function TrendSection({ data, loading, onLoad }: Props) {
         })}
       </div>
       <p className="text-[10px] text-gray-400 text-center">
-        Buy advantage at each delay. Center = break-even. Right column = projected rate.
+        {hasDelta
+          ? "0 = buy now. Positive = waiting helps. Right column = projected rate."
+          : "Buy advantage at each delay. Center = break-even. Right column = projected rate."}
       </p>
     </div>
   );

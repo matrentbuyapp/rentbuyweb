@@ -34,4 +34,9 @@ export const DEFAULT_FORM_VALUES: FormData = {
   stock_recovery_months: null,
   rate_target: "",
   rate_volatility_scale: "1.0",
+  refi_enabled: true,
+  refi_threshold: null,
+  refi_closing_cost: null,
+  refi_max_count: null,
+  refi_min_months: null,
 };

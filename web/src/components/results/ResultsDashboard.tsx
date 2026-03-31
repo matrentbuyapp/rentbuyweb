@@ -6,7 +6,6 @@ import NetWorthChart from "./NetWorthChart";
 import HomeValueChart from "./HomeValueChart";
 import CostBreakdownChart from "./CostBreakdownChart";
 import RentVsBuyChart from "./RentVsBuyChart";
-import EquityGrowthChart from "./EquityGrowthChart";
 import ProInsights from "./ProInsights";
 
 interface Props {
@@ -76,13 +75,12 @@ export default function ResultsDashboard({ result, loading, error, isPro, sellMo
           </ul>
         </div>
       )}
-      <KeyMetrics data={result} />
+      <KeyMetrics data={result} isPro={isPro} />
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
         <NetWorthChart monthly={result.monthly} breakevenMonth={result.breakeven_month} sellMonth={sellMonth} />
         <RentVsBuyChart monthly={result.monthly} sellMonth={sellMonth} />
         <CostBreakdownChart monthly={result.monthly} sellMonth={sellMonth} />
         <HomeValueChart monthly={result.monthly} bands={result.percentiles?.home_value} />
-        <EquityGrowthChart monthly={result.monthly} sellMonth={sellMonth} />
       </div>
       <ProInsights result={result} isPro={isPro} />
     </div>

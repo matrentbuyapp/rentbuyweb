@@ -22,6 +22,12 @@ export interface SummaryRequest {
   num_simulations?: number;
   buy_delay_months?: number;
   outlook_preset?: string;
+  // Refinance
+  refi_enabled?: boolean;
+  refi_threshold?: number | null;
+  refi_closing_cost?: number | null;
+  refi_max_count?: number | null;
+  refi_min_months?: number | null;
   // Pro outlook overrides
   volatility_scale?: number | null;
   housing_crash_prob?: number | null;
@@ -84,7 +90,26 @@ export interface Warning {
   message: string;
 }
 
+export interface Headline {
+  winner: "buy" | "rent" | "toss-up";
+  short: string;
+  detail: string;
+  confidence: "high" | "moderate" | "low";
+  monthly_savings: number;
+}
+
+export interface RefiSummary {
+  pct_sims_refinanced: number;
+  avg_refi_month: number;
+  avg_refi_rate: number;
+  avg_payment_drop: number;
+  avg_total_savings: number;
+  no_refi_buyer_net_worth: number;
+  refi_benefit: number;
+}
+
 export interface SummaryResponse {
+  headline?: Headline;
   house_price: number;
   mortgage_rate: number;
   property_tax_rate: number;
@@ -98,6 +123,7 @@ export interface SummaryResponse {
   data_vintage?: string;
   monthly: MonthlyData[];
   percentiles: Percentiles;
+  refi_summary?: RefiSummary | null;
   warnings?: Warning[];
 }
 
@@ -177,7 +203,13 @@ export interface SensitivityResponse {
   base_net_diff: number;
   base_buy_score: number;
   axes: Record<string, SensitivityPoint[]>;
-  heatmap: { cells: HeatmapCell[]; x_param: string; y_param: string };
+  heatmap: {
+    x_axis: string;
+    y_axis: string;
+    x_labels: string[];
+    y_labels: string[];
+    cells: HeatmapCell[][];  // cells[y_idx][x_idx]
+  };
 }
 
 export interface TrendPoint {
@@ -187,6 +219,7 @@ export interface TrendPoint {
   buyer_net_worth: number;
   renter_net_worth: number;
   net_difference: number;
+  delta_from_now?: number;
   breakeven_month: number | null;
 }
 
@@ -241,4 +274,10 @@ export interface FormData {
   // Pro rate forecast overrides
   rate_target: string;
   rate_volatility_scale: string;
+  // Refinance (Pro overrides, on by default)
+  refi_enabled: boolean;
+  refi_threshold: number | null;
+  refi_closing_cost: number | null;
+  refi_max_count: number | null;
+  refi_min_months: number | null;
 }

@@ -4,7 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { FormData, SummaryResponse } from "@/lib/types";
 import { DEFAULT_FORM_VALUES } from "@/lib/defaults";
 import { postSummary, formToRequest } from "@/lib/api";
-import { storeResult, loadResult } from "@/lib/resultStore";
+import { storeLiveResult, loadView, loadLiveResult, clearAll } from "@/lib/resultStore";
 
 const FORM_KEY = "rent-buy-form";
 
@@ -13,8 +13,11 @@ function loadFormData(): FormData {
     const raw = localStorage.getItem(FORM_KEY);
     if (raw) {
       const parsed = JSON.parse(raw);
-      // Merge with defaults to pick up any new fields added since last save
-      return { ...DEFAULT_FORM_VALUES, ...parsed };
+      const merged = { ...DEFAULT_FORM_VALUES, ...parsed };
+      // Sanity clamp: years must be 2-15, stay_years within years
+      merged.years = Math.max(2, Math.min(15, merged.years || 10));
+      merged.stay_years = Math.max(1, Math.min(merged.years, merged.stay_years || merged.years));
+      return merged;
     }
   } catch {}
   return DEFAULT_FORM_VALUES;
@@ -38,9 +41,9 @@ export function useSimulation() {
   // Hydrate form + result from localStorage on mount
   useEffect(() => {
     setFormData(loadFormData());
-    const stored = loadResult();
-    if (stored) {
-      setResult(stored.result);
+    const live = loadLiveResult();
+    if (live) {
+      setResult(live.result);
       setHasRun(true);
     }
   }, []);
@@ -71,7 +74,7 @@ export function useSimulation() {
       setResult(res);
       setHasRun(true);
       setIsDirty(false);
-      storeResult(res, formToRequest(formData));
+      storeLiveResult(res, formToRequest(formData));
       scrollToResults();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Something went wrong");
@@ -89,8 +92,11 @@ export function useSimulation() {
     setIsDirty(false);
     setError(null);
     try {
-      localStorage.removeItem("rent-buy-session");
+      clearAll();
       localStorage.removeItem("rent-buy-form");
+      localStorage.removeItem("rent-buy-premium");
+      localStorage.removeItem("device_id");
+      localStorage.removeItem("alert_email");
     } catch {}
   }, []);
 

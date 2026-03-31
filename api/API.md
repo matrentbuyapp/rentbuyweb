@@ -66,6 +66,14 @@ Main endpoint. Runs the Monte Carlo simulation and returns a month-by-month comp
   "num_simulations": 500,        // Number of MC runs. Default: 500
   "buy_delay_months": 0,         // Months to wait before purchasing. Default: 0
 
+  // === REFINANCE (on by default, conservative settings) ===
+  "refi_enabled": true,           // Toggle refi modeling. Default: true
+  "refi_threshold": null,         // Min rate drop to trigger (pct pts). Default: 1.0 (conservative)
+  "refi_closing_cost": null,      // Flat fee per refi ($). Default: 5000 (conservative)
+  "refi_max_count": null,         // Max number of refis. Default: 1 (conservative)
+  "refi_min_months": null,        // Cooldown before eligible (months). Default: 24 (conservative)
+  "refi_roll_costs": null,        // Roll closing costs into new loan balance. Default: true (conservative)
+
   // === MARKET OUTLOOK ===
   "outlook_preset": "historical", // "optimistic" | "historical" | "cautious" | "pessimistic" | "crisis". Default: "historical"
 
@@ -173,13 +181,22 @@ The response includes a `warnings` array. If inputs are impossible (e.g., can't 
 {
   "cache_key": "5c27de39e153...",   // SHA-256 of canonical inputs + data_vintage
   "data_vintage": "2026-03-28",     // ISO date of underlying market data
+
+  "headline": {                      // THE PRIMARY RESULT — show this to first-time users
+    "winner": "buy",                 // "buy" | "rent" | "toss-up"
+    "short": "You'd be $47K richer buying after 10 years",  // one sentence, the headline
+    "detail": "Buying costs $500/mo more than renting, but equity growth more than makes up for it. Buying pulls ahead at year 3 and stays ahead.",
+    "confidence": "high",            // "high" | "moderate" | "low"
+    "monthly_savings": 500           // monthly cost difference (always positive)
+  },
+
   "house_price": 650000,
   "mortgage_rate": 0.06875,
   "property_tax_rate": 0.0142,
   "avg_buyer_net_worth": 620000,
   "avg_renter_net_worth": 580000,
-  "buy_score": 72,                   // 0-100 composite score
-  "verdict": "Lean Buy",            // text verdict from score
+  "buy_score": 72,                   // 0-100 composite score (PRO / power users)
+  "verdict": "Lean Buy",            // text verdict from score (PRO / power users)
   "breakeven_month": 54,            // sustained: when buyer durably pulls ahead (null if never)
   "crossing_count": 1,              // how many times buyer/renter lead swaps (0 = clear winner)
 
@@ -218,6 +235,16 @@ The response includes a `warnings` array. If inputs are impossible (e.g., can't 
     "home_value": { "p10": [...], "p25": [...], "p50": [...], "p75": [...], "p90": [...] },
     "buyer_equity": { "p10": [...], "p25": [...], "p50": [...], "p75": [...], "p90": [...] },
     "mortgage_rate": { "p10": [...], "p25": [...], "p50": [...], "p75": [...], "p90": [...] }
+  },
+
+  "refi_summary": {                    // null when refi_enabled=false or no refi opportunity
+    "pct_sims_refinanced": 0.93,       // 93% of MC sims found a refi opportunity
+    "avg_refi_month": 37,              // average month of first refi
+    "avg_refi_rate": 0.0554,           // average rate after refi
+    "avg_payment_drop": 176,           // average monthly payment reduction ($)
+    "avg_total_savings": 10530,        // total benefit over remaining term ($)
+    "no_refi_buyer_net_worth": 343946, // buyer NW without refi
+    "refi_benefit": 10530              // with_refi NW - no_refi NW
   }
 }
 ```
@@ -298,6 +325,26 @@ Each band array has one value per month (`years × 12` entries). Use for uncerta
 - Solid line at P50 (median)
 
 Available for: `buyer_net_worth`, `renter_net_worth`, `home_value`, `buyer_equity`, `mortgage_rate`.
+
+#### Refinance Modeling
+
+Refinance is **on by default** with conservative settings. Free users get silently optimized results. PRO users see the `refi_summary` details and can adjust settings.
+
+**Conservative defaults** (what free users get):
+| Setting | Default | Why conservative |
+|---|---|---|
+| `refi_threshold` | 1.0% | Requires a full percentage point drop (not 0.5-0.75%) |
+| `refi_closing_cost` | $5,000 | High end of refi costs (not $3-4K) |
+| `refi_max_count` | 1 | Only one refi (no serial refinancing) |
+| `refi_min_months` | 24 | Must wait 2 years (not 12 months) |
+| `refi_roll_costs` | true | Closing costs added to loan balance (not out of pocket) |
+
+**PRO overrides**: pass any of `refi_threshold`, `refi_closing_cost`, `refi_max_count`, `refi_min_months` to customize. Set `refi_enabled: false` to disable entirely.
+
+**Frontend display**:
+- Free: don't show `refi_summary` — results already include the refi benefit silently
+- PRO: show a refi card: "Refinancing could save you $X — Y% chance by year Z"
+- PRO: show toggle to disable + sliders for threshold/cost/count/cooldown
 
 #### Mortgage Rate Forecast
 
@@ -597,8 +644,15 @@ When `stay_years < years`: draw a vertical dashed line at month `buy_delay_month
 
 ### Key Metrics
 
-From response root:
-- `buy_score` (0–100), `verdict` — the headline recommendation
+**For first-time users** — show `headline` only:
+- `headline.short` — the one-sentence answer: "You'd be $47K richer buying after 10 years"
+- `headline.winner` — color-code the result card (green=buy, orange=rent, gray=toss-up)
+- `headline.confidence` — show a confidence badge (high/moderate/low)
+- `headline.detail` — expand on tap/hover for the "why"
+- `headline.monthly_savings` — "Buying costs $500/mo more" or "Renting saves $500/mo"
+
+**For power users / PRO** — show additionally:
+- `buy_score` (0–100), `verdict` — the composite recommendation
 - `breakeven_month` — **sustained** breakeven: when buyer durably pulls ahead and stays ahead through end of horizon. `null` if buyer never durably leads. This is NOT the first crossing — if buyer briefly leads at month 20 then falls behind until month 90, `breakeven_month = 90`.
 - `crossing_count` — how many times the buyer/renter lead swaps. Helps communicate confidence:
   - `0`: one side always wins (clear signal)

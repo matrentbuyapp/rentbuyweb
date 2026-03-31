@@ -26,7 +26,9 @@
 
 **These apply to every agent working in this repo.**
 
-1. **Unit tests are mandatory.** Every code change that touches business logic, API endpoints, or data transformations must include or update tests. Run `cd api && pytest tests/` before considering work done. Never merge code that breaks existing tests. Target: maintain >90% coverage on `mortgage.py`, `scoring.py`, `simulator.py`.
+1. **Tests are mandatory — both backend and frontend.**
+   - **Backend**: Every code change that touches business logic, API endpoints, or data transformations must include or update tests. Run `cd api && pytest tests/` before considering work done. Never merge code that breaks existing tests. Target: maintain >90% coverage on `mortgage.py`, `scoring.py`, `simulator.py`.
+   - **Frontend**: Every new component, hook, or page must have a smoke test. Every bug fix must add a regression test. Run `cd web && npm test` before considering work done. Never merge code that breaks existing tests. The suite runs in <1 second — there is no excuse to skip it.
 
 2. **Keep documentation in sync.** When you add/change an API endpoint, update `api/API.md`. When you add/change frontend types or components, update `web/FRONTEND.md`. When you change project structure, update this file. Stale docs are worse than no docs.
 
@@ -100,10 +102,11 @@ These are field name mismatches between frontend and backend:
 
 | Frontend (types.ts / api.ts) | Backend (api.py) | Status |
 |------------------------------|-------------------|--------|
-| `crash_outlook` in `StepAdvanced.tsx` | `outlook_preset` | **MISMATCH** — StepAdvanced.tsx still references `crash_outlook` (stale component, unused in current layout but importable). `FormData`, `defaults.ts`, `SettingsPanel`, and `formToRequest()` all correctly use `outlook_preset`. Fix: update StepAdvanced.tsx or delete it. |
-| `Warning` type | `InputWarning` | Frontend `types.ts:93` has `warnings?: Warning[]` but `Warning` interface is never defined. Backend sends `{code, severity, message}`. Works at runtime via duck typing. Fix: add `Warning` interface to types.ts. |
-| `mortgage_rate` percentiles | Present in backend `PercentilesData` | Frontend `Percentiles` type missing this field. Not a bug (silently ignored), but available for rate forecast charts. |
-| PRO outlook overrides (`volatility_scale`, etc.) | Present in backend | Not in frontend types — add when building PRO outlook UI |
+| `crash_outlook` → `outlook_preset` | `outlook_preset` | **FIXED 2026-03-30** — all frontend uses `outlook_preset` |
+| `Warning` type | `InputWarning` | **FIXED 2026-03-29** — `Warning` interface defined in types.ts with code, severity, message |
+| `mortgage_rate` percentiles | `PercentilesData` | **FIXED 2026-03-29** — added to `Percentiles` interface |
+| PRO outlook overrides | Present in backend | **FIXED 2026-03-29** — all override fields in `SummaryRequest` + `FormData` + Advanced settings UI |
+| Refi fields | `refi_enabled`, `refi_*` overrides | **FIXED 2026-03-30** — `RefiSummary` type, request fields, Pro controls |
 
 
 ## Open Tickets
@@ -185,10 +188,15 @@ mortgage/
 │       └── test_sanity_scenarios.py
 ├── web/                    ← Next.js 15 frontend (static export)
 │   ├── FRONTEND.md         — Frontend architecture spec
+│   ├── vitest.config.ts    — Test config (jsdom + React plugin)
 │   ├── src/lib/            — Types, API client, defaults, formatters
 │   ├── src/components/     — Form steps, result charts, scenarios, UI primitives
-│   ├── src/hooks/          — useSimulation, useScenarios, usePremium
-│   └── package.json        — Next 15.4, React 19.1, Recharts 2.15, Tailwind 4.2
+│   ├── src/hooks/          — useSimulation, useScenarios, usePremium, useZipPrices
+│   ├── src/__tests__/      — Vitest smoke tests (55+ tests, <1s)
+│   │   ├── setup.ts        — Mocks (localStorage, fetch, IntersectionObserver, ResizeObserver)
+│   │   ├── fixtures.ts     — Mock data factories (MOCK_RESULT, MOCK_SCENARIO, etc.)
+│   │   └── smoke.test.tsx  — Smoke tests for every component, hook, and utility
+│   └── package.json        — Next 15.4, React 19.1, Recharts 2.15, Tailwind 4.2, Vitest 4.1
 ├── rent-buy-api/           ← DEPRECATED old Python backend (kept for reference data)
 └── rent-buy-app/           ← DEPRECATED old Flutter app (replaced by web/)
 ```
@@ -256,8 +264,15 @@ python refresh_data.py --geo-only   # just geo lookup + Census tax rates
 
 # Run
 uvicorn api:app --reload            # dev server at http://localhost:8000
-pytest tests/                       # run test suite (269+ tests)
+pytest tests/                       # run API test suite (269+ tests)
+
+# Frontend
+cd web
+npm run dev                         # dev server at http://localhost:3000
+npm test                            # run frontend tests (55+ tests, <1s)
 ```
+
+**Important**: Do not run `npm run build` while the dev server is active — it overwrites `.next` and breaks CSS.
 
 Environment variables:
 - `MORTGAGE_DATA_DIR` — override data directory (default: `api/data/`)

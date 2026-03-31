@@ -40,6 +40,14 @@ class SimulationConfig:
     stay_years: Optional[int] = None  # how long you'd own before selling (None = same as years)
     num_simulations: int = 500
     buy_delay_months: int = 0
+    # Refinance — on by default with conservative settings.
+    # Free users get silently optimized results. PRO users see details + controls.
+    refi_enabled: bool = True
+    refi_threshold: float = 1.0   # conservative: need 1.0% drop (not 0.75%)
+    refi_closing_cost: float = 5000.0  # conservative: $5K (not $3-4K)
+    refi_max_count: int = 1       # conservative: one refi only
+    refi_min_months: int = 24     # conservative: wait 2 years before refi eligible
+    refi_roll_costs: bool = True  # conservative: roll closing costs into new loan (not out of pocket)
 
 
 @dataclass

@@ -161,7 +161,7 @@ export default function ScenarioList({ scenarios, loading, onRerun, onDelete, on
                   ) : (
                     <button
                       onClick={() => setConfirmDeleteId(s.id)}
-                      className="text-xs text-gray-300 hover:text-rose-500 transition-colors p-1"
+                      className="text-xs text-gray-300 hover:text-rose-500 transition-colors p-2 min-w-[44px] min-h-[44px] flex items-center justify-center"
                       title="Delete scenario"
                     >
                       <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

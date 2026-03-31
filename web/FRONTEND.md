@@ -5,6 +5,7 @@
 - **React 19.1** with TypeScript 6.0
 - **Recharts 2.15** for all charts
 - **Tailwind CSS 4.2** (PostCSS plugin, no tailwind.config)
+- **Vitest 4.1** + React Testing Library for tests
 - No state management library — React hooks + prop drilling
 
 ## Running
@@ -13,6 +14,7 @@
 cd web
 npm install
 npm run dev          # http://localhost:3000 (requires API at localhost:8000)
+npm test             # run smoke tests (55+ tests, <1s)
 npm run build        # static export to web/out/
 ```
 
@@ -50,10 +52,15 @@ Static export (`web/out/`) → S3 bucket + CloudFront. Domain: `rentbuysellapp.c
 
 ```
 web/src/
+├── __tests__/
+│   ├── setup.ts                — Test environment (mocks for localStorage, fetch, observers)
+│   ├── fixtures.ts             — Mock data (MOCK_RESULT, MOCK_SCENARIO, MOCK_FORM)
+│   └── smoke.test.tsx          — 55+ smoke tests covering all components
 ├── app/
 │   ├── layout.tsx              — Root layout (metadata, Inter font)
 │   ├── page.tsx                — Calculator page
 │   ├── insights/page.tsx       — Pro Insights page
+│   ├── compare/page.tsx        — Scenario comparison page
 │   └── globals.css             — Tailwind + custom styles
 ├── lib/
 │   ├── types.ts                — TypeScript interfaces (mirrors api/API.md)
@@ -223,3 +230,57 @@ All Pro crash overrides: null (use preset)
 rate_target: "" (auto)
 rate_volatility_scale: "1.0" (normal)
 ```
+
+## Testing
+
+### Setup
+- **Vitest 4.1** with jsdom environment
+- **React Testing Library** for component rendering
+- Config: `vitest.config.ts` with `@` path alias
+- Mocks: localStorage, fetch, IntersectionObserver, ResizeObserver, crypto.randomUUID, scrollIntoView
+
+### Running
+```bash
+npm test           # run all tests once (<1 second)
+npm run test:watch # watch mode for development
+```
+
+### Test structure (`src/__tests__/`)
+
+| File | What it covers |
+|------|---------------|
+| `setup.ts` | Global mocks — runs before every test |
+| `fixtures.ts` | `MOCK_RESULT`, `MOCK_FORM`, `MOCK_SCENARIO`, `MOCK_SCENARIO_2` — consistent test data |
+| `smoke.test.tsx` | 55+ smoke tests covering all components, hooks, and utilities |
+
+### Coverage by area
+
+| Area | Tests | What's verified |
+|------|:---:|---|
+| Lib: formatters | 3 | Currency, percent, compact formatting |
+| Lib: defaults | 1 | Required fields exist with correct values |
+| Lib: formToRequest | 4 | % → decimal conversion, null handling, stay_years logic |
+| Lib: device | 1 | Consistent UUID generation |
+| Lib: resultStore | 2 | Store/load round-trip, scenario context |
+| UI: ProBadge | 1 | Renders "PRO" |
+| UI: QuickStats | 2 | Full result, empty monthly |
+| UI: ViewSwitcher | 3 | Live state, scenario state, compact mode |
+| UI: ProGate | 2 | Shows children for Pro, label for free |
+| Results: KeyMetrics | 6 | Headline, fallback, Pro row, toss-up, renter wins |
+| Results: Dashboard | 6 | Null, loading, error, validation, result, warnings |
+| Results: ChartCard | 1 | Title rendering |
+| Charts (all 4) | 6 | Smoke render with and without optional props |
+| Form: CrashSlider | 1 | All presets visible |
+| Form: DownPayment | 4 | Normal, over budget, PMI warning, no PMI |
+| Scenarios: SaveButton | 1 | Initial state |
+| Scenarios: List | 3 | Empty, loading, with data |
+| Insights: WhatIf | 3 | Load button, loading, with data |
+| Insights: Trend | 2 | Load button, with data |
+| Insights: LLM | 2 | Load button, with data |
+| Insights: Sensitivity | 1 | Load button |
+
+### Rules
+1. **Every new component must have a smoke test** — at minimum, render without crashing
+2. **Every bug fix must add a regression test** — reproduce the bug first, then fix
+3. **Never merge code that breaks tests** — run `npm test` before every session end
+4. **Keep tests fast** — no API calls, no timeouts, mock everything external

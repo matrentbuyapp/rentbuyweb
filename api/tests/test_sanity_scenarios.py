@@ -637,13 +637,20 @@ class TestGranularMath:
                     assert gap < 0.01, f"{name} month {i}: total_cost off by ${gap:.2f}"
 
     def test_balance_decreases_monotonically(self):
-        """Remaining mortgage balance should decrease every month during ownership."""
+        """Remaining mortgage balance should decrease every month during ownership.
+        Exception: balance may jump up slightly at a refi point when closing costs
+        are rolled into the new loan ($5K default)."""
         for name in ["miami_savings_only", "chicago_15yr_mortgage"]:
             r = _run(SCENARIOS[name])
             balances = [m.remaining_balance for m in r.monthly if m.mortgage_payment > 0]
+            increases = 0
             for i in range(1, len(balances)):
-                assert balances[i] < balances[i - 1] + 0.01, \
-                    f"{name}: balance increased at month {i}"
+                if balances[i] > balances[i - 1] + 0.01:
+                    increases += 1
+                    # Refi can cause one small jump (closing costs rolled in)
+                    assert balances[i] - balances[i - 1] < 6000, \
+                        f"{name}: balance jumped by ${balances[i] - balances[i-1]:,.0f} at month {i} — too large for refi"
+            assert increases <= 1, f"{name}: balance increased {increases} times — expected at most 1 (refi)"
 
     def test_sell_event_math(self):
         """At sell month, buyer_inv should jump by approximately the equity amount."""

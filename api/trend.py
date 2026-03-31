@@ -27,6 +27,7 @@ from simulator import run_simulation, MonthlySnapshot
 from data_store import get_zip_data
 
 import copy
+import numpy as np
 
 
 @dataclass
@@ -45,6 +46,13 @@ class TrendPoint:
     mortgage_rate_used: float
     house_price_used: float
     first_month_cost: float    # total_housing_cost in first month of ownership
+    # Delta from buying now (delay=0). 0 for the first point.
+    # Positive = waiting helps, negative = waiting hurts.
+    delta_from_now: float
+    # Uncertainty: percentile spread of net_difference across MC sims
+    diff_p10: float    # pessimistic outcome
+    diff_p50: float    # median outcome
+    diff_p90: float    # optimistic outcome
 
 
 @dataclass
@@ -145,12 +153,27 @@ def run_trend(
         v.config.num_simulations = min(v.config.num_simulations, 100)
         v.config.buy_delay_months = delay
 
-        result = run_simulation(v, data)
+        # Each delay point uses fresh MC paths so crash timing varies
+        # independently. Without this, all points share the same paths
+        # and the trend is monotonic (same crash hits all delay points).
+        result = run_simulation(v, data, _seed_offset=q * 1000)
 
         yearly = _compute_yearly_scores(result.monthly)
         agg = _aggregate_score(yearly)
 
         first_own = result.monthly[delay] if delay < len(result.monthly) else result.monthly[-1]
+
+        # Per-sim spread: how much does the outcome vary across MC sims?
+        pct = result.percentiles
+        final_idx = len(result.monthly) - 1
+        buyer_p10 = pct.buyer_net_worth.p10[final_idx]
+        buyer_p50 = pct.buyer_net_worth.p50[final_idx]
+        buyer_p90 = pct.buyer_net_worth.p90[final_idx]
+        renter_p50 = pct.renter_net_worth.p50[final_idx]
+        # diff percentiles: buyer pN - renter median (renter is less variable)
+        diff_p10 = buyer_p10 - renter_p50
+        diff_p50 = buyer_p50 - renter_p50
+        diff_p90 = buyer_p90 - renter_p50
 
         if q == 0:
             label = "Buy now"
@@ -159,18 +182,26 @@ def run_trend(
         else:
             label = f"Wait {q * 3} months"
 
+        net_diff = result.avg_buyer_net_worth - result.avg_renter_net_worth
+        if q == 0:
+            base_diff = net_diff
+
         points.append(TrendPoint(
             delay_months=delay,
             label=label,
             buyer_net_worth=result.avg_buyer_net_worth,
             renter_net_worth=result.avg_renter_net_worth,
-            net_difference=result.avg_buyer_net_worth - result.avg_renter_net_worth,
+            net_difference=net_diff,
             breakeven_month=_find_breakeven(result.monthly),
             yearly_scores=yearly,
             aggregate_score=agg,
             mortgage_rate_used=result.mortgage_rate_used,
             house_price_used=result.house_price_used,
             first_month_cost=first_own.total_housing_cost,
+            delta_from_now=net_diff - base_diff,
+            diff_p10=diff_p10,
+            diff_p50=diff_p50,
+            diff_p90=diff_p90,
         ))
 
     return TrendResult(points=points)

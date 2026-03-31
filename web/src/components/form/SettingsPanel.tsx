@@ -5,6 +5,7 @@ import InputField from "@/components/ui/InputField";
 import SelectField from "@/components/ui/SelectField";
 import ProBadge from "@/components/ui/ProBadge";
 import CrashSlider from "./CrashSlider";
+import DownPaymentInput from "./DownPaymentInput";
 import { FormData } from "@/lib/types";
 
 const DELAY_LABELS = ["Buy now", "3 mo", "6 mo", "12 mo", "18 mo", "24 mo"];
@@ -63,9 +64,9 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
 
   const zipInfo = zipLookup?.(formData.zip_code) ?? null;
   const defaultPrice = zipInfo?.price ?? nationalMedian ?? 277000;
-  const resolvedPriceLabel = lastHousePrice
-    ? `$${lastHousePrice.toLocaleString()} (from last run)`
-    : `$${defaultPrice.toLocaleString()} (${zipInfo ? "ZIP median" : "national median"})`;
+  // ZIP median takes priority over last-run price (user may have changed ZIP)
+  const estimatedHomePrice = formData.house_price ? Number(formData.house_price) : (zipInfo?.price ?? lastHousePrice ?? defaultPrice);
+  const resolvedPriceLabel = `$${(zipInfo?.price ?? lastHousePrice ?? defaultPrice).toLocaleString()} (${zipInfo ? "ZIP median" : lastHousePrice ? "from last run" : "national median"})`;
 
   const stayLabel = stayYears === formData.years && formData.buy_delay_months === 0
     ? "Own for the full horizon"
@@ -130,13 +131,13 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
           </div>
           <p className="text-[11px] text-gray-400 mt-0.5">{stayLabel}</p>
         </div>
-        <InputField
-          label="Down Payment"
-          value={formData.down_payment_pct}
-          onChange={(v) => updateField("down_payment_pct", Number(v) || 0)}
-          suffix="%"
-          hint="8% is typical for first-time buyers"
-          compact
+        <DownPaymentInput
+          pct={formData.down_payment_pct}
+          onPctChange={(v) => updateField("down_payment_pct", v)}
+          homePrice={estimatedHomePrice}
+          savings={formData.initial_cash}
+          closingPct={formData.closing_cost_pct}
+          moveInCost={formData.move_in_cost}
         />
         {!pro && <ProHint text="Delay purchase timing, custom planning horizon" />}
       </Accordion>
@@ -471,6 +472,62 @@ export default function SettingsPanel({ formData, updateField, hasRun, isPro, zi
                 <span className="text-[10px] text-gray-400">{Math.round((formData.stock_recovery_months ?? 36) / 12)} years</span>
               </div>
             </div>
+          </div>
+
+          {/* Refinance Override */}
+          <div className="pt-3 border-t border-gray-100 space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-gray-500">Refinance Settings</p>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <span className="text-[10px] text-gray-400">{formData.refi_enabled !== false ? "On" : "Off"}</span>
+                <input
+                  type="checkbox"
+                  checked={formData.refi_enabled !== false}
+                  onChange={(e) => updateField("refi_enabled", e.target.checked)}
+                  className="w-4 h-4 rounded border-gray-300 text-indigo-500 focus:ring-indigo-200"
+                />
+              </label>
+            </div>
+            {formData.refi_enabled !== false && (
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] text-gray-500 mb-1">Rate Drop Trigger</label>
+                  <input type="range" min={0.25} max={2} step={0.25}
+                    value={formData.refi_threshold ?? 1.0}
+                    onChange={(e) => updateField("refi_threshold", Number(e.target.value))}
+                    className="w-full" style={{ background: "linear-gradient(90deg, #c7d2fe, #e0e7ff)" }}
+                  />
+                  <span className="text-[10px] text-gray-400">{formData.refi_threshold ?? 1.0}% drop needed</span>
+                </div>
+                <div>
+                  <label className="block text-[11px] text-gray-500 mb-1">Refi Closing Cost</label>
+                  <input type="range" min={2000} max={10000} step={500}
+                    value={formData.refi_closing_cost ?? 5000}
+                    onChange={(e) => updateField("refi_closing_cost", Number(e.target.value))}
+                    className="w-full" style={{ background: "linear-gradient(90deg, #c7d2fe, #e0e7ff)" }}
+                  />
+                  <span className="text-[10px] text-gray-400">${(formData.refi_closing_cost ?? 5000).toLocaleString()}</span>
+                </div>
+                <div>
+                  <label className="block text-[11px] text-gray-500 mb-1">Max Refis</label>
+                  <input type="range" min={1} max={5} step={1}
+                    value={formData.refi_max_count ?? 1}
+                    onChange={(e) => updateField("refi_max_count", Number(e.target.value))}
+                    className="w-full" style={{ background: "linear-gradient(90deg, #c7d2fe, #e0e7ff)" }}
+                  />
+                  <span className="text-[10px] text-gray-400">{formData.refi_max_count ?? 1} time{(formData.refi_max_count ?? 1) > 1 ? "s" : ""}</span>
+                </div>
+                <div>
+                  <label className="block text-[11px] text-gray-500 mb-1">Cooldown</label>
+                  <input type="range" min={6} max={48} step={6}
+                    value={formData.refi_min_months ?? 24}
+                    onChange={(e) => updateField("refi_min_months", Number(e.target.value))}
+                    className="w-full" style={{ background: "linear-gradient(90deg, #c7d2fe, #e0e7ff)" }}
+                  />
+                  <span className="text-[10px] text-gray-400">{formData.refi_min_months ?? 24} months wait</span>
+                </div>
+              </div>
+            )}
           </div>
         </Accordion>
       )}

@@ -343,18 +343,24 @@ def generate_home_appreciation_path(
     # Convert to log returns
     log_returns = np.diff(np.log(np.clip(base[:n_months], 0.001, None)))
 
-    # Blend drift toward long-term average beyond month 60
-    # 0-60: full historical drift. 60-120: linear blend to LT average.
-    blend_start = 60
-    blend_end = 120
-    for i in range(len(log_returns)):
-        if i >= blend_end:
-            # Fully mean-reverted: use long-term average as drift
-            log_returns[i] = _LT_HOME_APPRECIATION_MONTHLY
-        elif i >= blend_start:
-            # Linear blend from historical to long-term
-            t = (i - blend_start) / (blend_end - blend_start)
-            log_returns[i] = (1 - t) * log_returns[i] + t * _LT_HOME_APPRECIATION_MONTHLY
+    # Drift strategy:
+    # - With ZIP data: use the ZIP-blended base for months 0-12 (captures
+    #   Zillow forecast + local trend), then blend to LT average by month 60.
+    # - Without ZIP: use LT average (3.5%/yr) from month 0.
+    # In both cases, noise is fresh (not the historical temporal pattern).
+    if zip_cumulative is not None:
+        # ZIP-blended drift for first 12 months, then fade to LT
+        for i in range(len(log_returns)):
+            if i < 12:
+                pass  # keep ZIP-blended log_returns
+            elif i < 60:
+                t = (i - 12) / 48
+                log_returns[i] = (1 - t) * log_returns[i] + t * _LT_HOME_APPRECIATION_MONTHLY
+            else:
+                log_returns[i] = _LT_HOME_APPRECIATION_MONTHLY
+    else:
+        # No ZIP: LT drift for all months
+        log_returns[:] = _LT_HOME_APPRECIATION_MONTHLY
 
     monthly_vol = annual_vol / np.sqrt(12)
     noise = rng.normal(0, monthly_vol, len(log_returns))

@@ -60,8 +60,8 @@ export default function StepAdvanced({ formData, updateField }: Props) {
         />
       </div>
       <CrashSlider
-        value={formData.crash_outlook}
-        onChange={(v) => updateField("crash_outlook", v)}
+        value={formData.outlook_preset}
+        onChange={(v) => updateField("outlook_preset", v)}
       />
     </div>
   );

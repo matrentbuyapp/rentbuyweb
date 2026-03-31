@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rent vs Buy — AWS Deployment Guide (Beta)</title>
+<style>
+  :root { --accent: #6366f1; --accent-light: #eef2ff; --bg: #fafbff; --text: #1e293b; --muted: #64748b; --border: #e2e8f0; --code-bg: #f1f5f9; --warn-bg: #fffbeb; --warn-border: #fcd34d; --info-bg: #eff6ff; --info-border: #93c5fd; --success-bg: #f0fdf4; --success-border: #86efac; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: var(--bg); color: var(--text); line-height: 1.7; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Layout */
+  .container { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+  @media (min-width: 1100px) {
+    .layout { display: grid; grid-template-columns: 220px 1fr; gap: 2rem; }
+    nav.toc { position: sticky; top: 1rem; align-self: start; max-height: calc(100vh - 2rem); overflow-y: auto; }
+  }
+  @media (max-width: 1099px) { nav.toc { display: none; } }
+
+  /* TOC */
+  nav.toc { font-size: 0.75rem; }
+  nav.toc a { display: block; padding: 0.25rem 0; color: var(--muted); border-left: 2px solid transparent; padding-left: 0.75rem; }
+  nav.toc a:hover, nav.toc a.active { color: var(--accent); border-left-color: var(--accent); text-decoration: none; }
+  nav.toc .toc-title { font-weight: 700; font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 0.5rem; padding-left: 0.75rem; }
+
+  /* Typography */
+  h1 { font-size: 1.75rem; font-weight: 800; margin-bottom: 0.25rem; }
+  h1 .badge { font-size: 0.6rem; background: var(--accent); color: white; padding: 0.15rem 0.5rem; border-radius: 999px; vertical-align: middle; margin-left: 0.5rem; letter-spacing: 0.05em; }
+  .subtitle { color: var(--muted); font-size: 0.875rem; margin-bottom: 2rem; }
+  h2 { font-size: 1.25rem; font-weight: 700; margin: 2.5rem 0 1rem; padding-bottom: 0.5rem; border-bottom: 2px solid var(--accent-light); scroll-margin-top: 1rem; }
+  h3 { font-size: 1rem; font-weight: 600; margin: 1.5rem 0 0.5rem; }
+  p, li { font-size: 0.875rem; }
+  ul, ol { padding-left: 1.5rem; margin: 0.5rem 0; }
+  li { margin: 0.25rem 0; }
+
+  /* Code blocks */
+  pre { background: var(--code-bg); border: 1px solid var(--border); border-radius: 0.5rem; padding: 1rem; overflow-x: auto; font-size: 0.8rem; line-height: 1.6; margin: 0.75rem 0; position: relative; }
+  code { font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 0.8rem; }
+  p code, li code { background: var(--code-bg); padding: 0.1rem 0.35rem; border-radius: 0.25rem; font-size: 0.78rem; }
+  .copy-btn { position: absolute; top: 0.5rem; right: 0.5rem; background: white; border: 1px solid var(--border); border-radius: 0.25rem; padding: 0.2rem 0.5rem; font-size: 0.65rem; cursor: pointer; color: var(--muted); }
+  .copy-btn:hover { background: var(--accent-light); color: var(--accent); }
+
+  /* Tables */
+  table { width: 100%; border-collapse: collapse; margin: 0.75rem 0; font-size: 0.8rem; }
+  th, td { padding: 0.5rem 0.75rem; border: 1px solid var(--border); text-align: left; }
+  th { background: var(--code-bg); font-weight: 600; font-size: 0.75rem; }
+  td code { font-size: 0.75rem; }
+
+  /* Callouts */
+  .callout { border-left: 4px solid; border-radius: 0 0.5rem 0.5rem 0; padding: 0.75rem 1rem; margin: 1rem 0; font-size: 0.8rem; }
+  .callout-warn { background: var(--warn-bg); border-color: var(--warn-border); }
+  .callout-info { background: var(--info-bg); border-color: var(--info-border); }
+  .callout-success { background: var(--success-bg); border-color: var(--success-border); }
+  .callout strong { display: block; margin-bottom: 0.25rem; }
+
+  /* Checklist */
+  .checklist { list-style: none; padding-left: 0; }
+  .checklist li { padding: 0.35rem 0; padding-left: 1.75rem; position: relative; }
+  .checklist li::before { content: ''; position: absolute; left: 0; top: 0.55rem; width: 1rem; height: 1rem; border: 2px solid var(--border); border-radius: 0.25rem; }
+  .checklist li.done::before { background: var(--accent); border-color: var(--accent); }
+  .checklist li.done::after { content: ''; position: absolute; left: 0.25rem; top: 0.6rem; width: 0.5rem; height: 0.3rem; border-left: 2px solid white; border-bottom: 2px solid white; transform: rotate(-45deg); }
+
+  /* Collapsible */
+  details { margin: 0.75rem 0; border: 1px solid var(--border); border-radius: 0.5rem; }
+  summary { padding: 0.75rem 1rem; cursor: pointer; font-weight: 600; font-size: 0.875rem; background: var(--code-bg); border-radius: 0.5rem; }
+  details[open] summary { border-radius: 0.5rem 0.5rem 0 0; border-bottom: 1px solid var(--border); }
+  details .inner { padding: 1rem; }
+
+  /* Print */
+  @media print { nav.toc { display: none; } .container { max-width: 100%; } pre { white-space: pre-wrap; } }
+</style>
+</head>
+<body>
+<div class="container">
+<div class="layout">
+
+<!-- TOC -->
+<nav class="toc">
+  <div class="toc-title">Deployment Guide</div>
+  <a href="#prereqs">1. Prerequisites</a>
+  <a href="#build">2. Build Locally</a>
+  <a href="#frontend">3. Frontend (S3 + CF)</a>
+  <a href="#backend">4. Backend (EC2)</a>
+  <a href="#ssl">5. SSL Certificates</a>
+  <a href="#dns">6. Route 53 DNS</a>
+  <a href="#ses">7. SES Email Setup</a>
+  <a href="#feedback-email">8. Feedback Email</a>
+  <a href="#env">9. Environment Variables</a>
+  <a href="#cron">10. Data Refresh Cron</a>
+  <a href="#cors">11. CORS for Production</a>
+  <a href="#errors">12. Troubleshooting</a>
+  <a href="#verify">13. Post-Deploy Checklist</a>
+  <a href="#cost">14. Cost Estimate</a>
+  <a href="#todo">15. TODO Before GA</a>
+  <a href="#commands">16. Quick Reference</a>
+</nav>
+
+<!-- Content -->
+<main>
+
+<h1>Rent vs Buy <span class="badge">BETA DEPLOY</span></h1>
+<p class="subtitle">AWS deployment guide for rentbuysellapp.com &mdash; March 2026</p>
+
+<!-- ================================================================== -->
+<h2 id="prereqs">1. Prerequisites Checklist</h2>
+
+<ul class="checklist">
+  <li>AWS account with admin (or IAM with EC2, S3, CloudFront, Route 53, ACM, SES)</li>
+  <li>AWS CLI v2 installed: <code>aws --version</code> &ge; 2.x</li>
+  <li>AWS CLI configured: <code>aws configure</code> (access key + region us-east-1)</li>
+  <li>Node 18+ locally: <code>node --version</code></li>
+  <li>Python 3.12+ locally: <code>python --version</code></li>
+  <li>Domain <strong>rentbuysellapp.com</strong> in Route 53 (hosted zone exists)</li>
+  <li>SSH key pair for EC2 created in AWS Console</li>
+</ul>
+
+<!-- ================================================================== -->
+<h2 id="build">2. Build &amp; Package Locally</h2>
+
+<h3>Frontend</h3>
+<pre><code>cd web
+NEXT_PUBLIC_API_URL=https://api.rentbuysellapp.com npm run build
+# Output: web/out/ (static files, ~2MB)</code></pre>
+
+<h3>Backend dependencies</h3>
+<pre><code># From api/ directory
+pip install numpy scipy pandas fastapi uvicorn requests boto3</code></pre>
+
+<div class="callout callout-warn">
+  <strong>Do not run <code>npm run build</code> while <code>npm run dev</code> is running.</strong>
+  It overwrites <code>.next/</code> and breaks CSS. Stop the dev server first.
+</div>
+
+<!-- ================================================================== -->
+<h2 id="frontend">3. Frontend: S3 + CloudFront</h2>
+
+<h3>Step 1: Create S3 Bucket</h3>
+<ol>
+  <li>AWS Console &rarr; S3 &rarr; <strong>Create bucket</strong></li>
+  <li>Bucket name: <code>rentbuysellapp.com</code></li>
+  <li>Region: <code>us-east-1</code></li>
+  <li><strong>Block all public access</strong>: ON (CloudFront serves, not S3)</li>
+  <li>Leave everything else default &rarr; Create</li>
+</ol>
+
+<h3>Step 2: Upload static files</h3>
+<pre><code>aws s3 sync web/out/ s3://rentbuysellapp.com --delete</code></pre>
+
+<h3>Step 3: Create CloudFront Distribution</h3>
+<ol>
+  <li>CloudFront &rarr; <strong>Create distribution</strong></li>
+  <li><strong>Origin domain</strong>: select your S3 bucket (<code>rentbuysellapp.com.s3.amazonaws.com</code>)</li>
+  <li><strong>Origin access</strong>: Origin Access Control (OAC) &mdash; click "Create new OAC", type S3, Sign requests &rarr; Create</li>
+  <li><strong>Default root object</strong>: <code>index.html</code></li>
+  <li><strong>Viewer protocol policy</strong>: Redirect HTTP to HTTPS</li>
+  <li><strong>Cache policy</strong>: CachingOptimized (managed)</li>
+  <li><strong>Price class</strong>: Use all edge locations (or North America + Europe to save)</li>
+  <li><strong>Alternate domain names (CNAMEs)</strong>: <code>rentbuysellapp.com</code> and <code>www.rentbuysellapp.com</code></li>
+  <li><strong>Custom SSL certificate</strong>: select your ACM cert (see <a href="#ssl">Section 5</a> &mdash; must be in us-east-1)</li>
+  <li>Create distribution</li>
+</ol>
+
+<h3>Step 4: Custom error response (SPA routing)</h3>
+<ol>
+  <li>In the new distribution &rarr; <strong>Error pages</strong> tab</li>
+  <li><strong>Create custom error response</strong>: HTTP error code <code>403</code> &rarr; Response page path <code>/index.html</code> &rarr; HTTP response code <code>200</code></li>
+  <li>Create another for <code>404</code> &rarr; <code>/index.html</code> &rarr; <code>200</code></li>
+</ol>
+
+<h3>Step 5: Update S3 bucket policy</h3>
+<p>After creating the distribution, CloudFront shows a banner: "S3 bucket policy needs to be updated." Click <strong>Copy policy</strong>, go to your S3 bucket &rarr; Permissions &rarr; Bucket policy &rarr; paste &rarr; Save.</p>
+
+<div class="callout callout-info">
+  <strong>OAC vs OAI:</strong> OAI (Origin Access Identity) is deprecated since 2023. Always use OAC for new distributions.
+</div>
+
+<!-- ================================================================== -->
+<h2 id="backend">4. Backend: EC2 (Recommended for Beta)</h2>
+
+<h3>Step 1: Launch instance</h3>
+<ol>
+  <li>EC2 &rarr; Launch instance</li>
+  <li>Name: <code>rentbuy-api</code></li>
+  <li>AMI: <strong>Amazon Linux 2023</strong></li>
+  <li>Instance type: <strong>t3.small</strong> (2 GB RAM &mdash; needed for market.db + numpy)</li>
+  <li>Key pair: select yours</li>
+  <li>Security group: create new:
+    <ul>
+      <li>SSH (22) from <strong>My IP</strong></li>
+      <li>Custom TCP (8000) from <strong>the ALB security group</strong> (or anywhere for initial testing)</li>
+    </ul>
+  </li>
+  <li>Storage: 20 GB gp3</li>
+  <li>Launch</li>
+</ol>
+
+<h3>Step 2: Install dependencies</h3>
+<pre><code>ssh -i your-key.pem ec2-user@&lt;public-ip&gt;
+
+# Install Python 3.12
+sudo dnf install python3.12 python3.12-pip git -y
+
+# Clone repo
+git clone https://github.com/YOUR_USER/mortgage.git
+cd mortgage/api
+
+# Install Python deps
+python3.12 -m pip install numpy scipy pandas fastapi uvicorn requests boto3
+
+# Upload your data (from local machine)
+# Option A: scp
+scp -i your-key.pem api/data/market.db ec2-user@&lt;ip&gt;:~/mortgage/api/data/
+
+# Option B: download fresh
+python3.12 refresh_data.py</code></pre>
+
+<h3>Step 3: Create systemd service</h3>
+<pre><code>sudo tee /etc/systemd/system/rentbuy.service &lt;&lt;'EOF'
+[Unit]
+Description=Rent vs Buy API
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/mortgage/api
+ExecStart=/usr/bin/python3.12 -m uvicorn api:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+Environment=MORTGAGE_DB_PATH=/home/ec2-user/mortgage/api/data/market.db
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable rentbuy
+sudo systemctl start rentbuy
+
+# Verify
+curl http://localhost:8000/health
+# Should return: {"status":"ok"}</code></pre>
+
+<h3>Step 4: Application Load Balancer</h3>
+<ol>
+  <li>EC2 &rarr; Load Balancers &rarr; <strong>Create</strong> &rarr; Application Load Balancer</li>
+  <li>Name: <code>rentbuy-alb</code></li>
+  <li>Scheme: Internet-facing</li>
+  <li>Listeners: HTTP (80) and HTTPS (443)</li>
+  <li>Availability zones: select at least 2</li>
+  <li>Security group: allow 80 and 443 from anywhere</li>
+  <li><strong>Target group</strong>: create new, HTTP port 8000, health check path <code>/health</code></li>
+  <li>Register your EC2 instance</li>
+  <li>HTTPS listener: select ACM certificate for <code>api.rentbuysellapp.com</code></li>
+  <li>HTTP listener: add rule to redirect to HTTPS</li>
+</ol>
+
+<!-- ================================================================== -->
+<h2 id="ssl">5. SSL Certificates (ACM)</h2>
+
+<ol>
+  <li>AWS Console &rarr; Certificate Manager &rarr; <strong>Request certificate</strong></li>
+  <li>Domain names: <code>rentbuysellapp.com</code> and <code>*.rentbuysellapp.com</code></li>
+  <li>Validation: <strong>DNS validation</strong></li>
+  <li>Click <strong>Create records in Route 53</strong> (one-click &mdash; adds CNAME records automatically)</li>
+  <li>Wait 2&ndash;10 minutes for status to change to "Issued"</li>
+</ol>
+
+<div class="callout callout-warn">
+  <strong>Region matters!</strong> CloudFront requires certs in <strong>us-east-1</strong>. If your ALB is in a different region, you need a second certificate there. Request the cert in us-east-1 first.
+</div>
+
+<!-- ================================================================== -->
+<h2 id="dns">6. Route 53 DNS Records</h2>
+
+<p>Go to Route 53 &rarr; Hosted zones &rarr; <code>rentbuysellapp.com</code> &rarr; Create records:</p>
+
+<table>
+  <tr><th>Name</th><th>Type</th><th>Alias</th><th>Value</th></tr>
+  <tr><td><code>rentbuysellapp.com</code></td><td>A</td><td>Yes</td><td>CloudFront distribution</td></tr>
+  <tr><td><code>rentbuysellapp.com</code></td><td>AAAA</td><td>Yes</td><td>CloudFront distribution</td></tr>
+  <tr><td><code>www.rentbuysellapp.com</code></td><td>CNAME</td><td>No</td><td><code>rentbuysellapp.com</code></td></tr>
+  <tr><td><code>api.rentbuysellapp.com</code></td><td>A</td><td>Yes</td><td>ALB (select your load balancer)</td></tr>
+</table>
+
+<!-- ================================================================== -->
+<h2 id="ses">7. AWS SES Setup (Alert Emails)</h2>
+
+<ol>
+  <li>SES Console &rarr; Verified identities &rarr; <strong>Create identity</strong></li>
+  <li>Identity type: <strong>Domain</strong></li>
+  <li>Domain: <code>rentbuysellapp.com</code></li>
+  <li>Click <strong>Publish DNS records</strong> &rarr; automatically adds DKIM records to Route 53</li>
+  <li>Wait for verification (usually &lt;5 minutes)</li>
+  <li>SES starts in <strong>sandbox mode</strong> &mdash; can only send to verified emails</li>
+  <li>For beta, verify your personal email as a recipient</li>
+  <li>For GA, request production access: SES &rarr; Account dashboard &rarr; Request production access</li>
+</ol>
+
+<h3>IAM permissions for EC2</h3>
+<p>Create an IAM role for your EC2 instance with this policy:</p>
+<pre><code>{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": ["ses:SendEmail", "ses:SendRawEmail"],
+    "Resource": "arn:aws:ses:us-east-1:*:identity/rentbuysellapp.com"
+  }]
+}</code></pre>
+<p>Attach the role to your EC2 instance: EC2 &rarr; Instance &rarr; Actions &rarr; Security &rarr; Modify IAM role.</p>
+
+<!-- ================================================================== -->
+<h2 id="feedback-email">8. Feedback Email Routing</h2>
+
+<p>The UI links to <code>feedback@rentbuysellapp.com</code>. You need to route incoming mail to your real inbox. Two options:</p>
+
+<h3>Option A: SES Email Receiving + S3 + Lambda (AWS-native)</h3>
+<ol>
+  <li>SES &rarr; Email receiving &rarr; Create rule set &rarr; Create rule</li>
+  <li>Recipients: <code>feedback@rentbuysellapp.com</code></li>
+  <li>Actions: Store in S3 bucket (creates a new one) + SNS notification to your email</li>
+  <li>Add MX record in Route 53: <code>rentbuysellapp.com</code> MX <code>10 inbound-smtp.us-east-1.amazonaws.com</code></li>
+</ol>
+
+<div class="callout callout-info">
+  <strong>SES email receiving only works in us-east-1, us-west-2, and eu-west-1.</strong> Make sure you set it up in one of those regions.
+</div>
+
+<h3>Option B: Email forwarding service (simpler)</h3>
+<p>Use a free service like <a href="https://improvmx.com">ImprovMX</a> or <a href="https://forwardemail.net">Forward Email</a>:</p>
+<ol>
+  <li>Sign up, add <code>rentbuysellapp.com</code></li>
+  <li>Set up forwarding: <code>feedback@rentbuysellapp.com</code> &rarr; <code>your-real-email@gmail.com</code></li>
+  <li>Add their MX records to Route 53 (they provide exact values)</li>
+  <li>Takes 5 minutes, no Lambda/S3 needed</li>
+</ol>
+
+<!-- ================================================================== -->
+<h2 id="env">9. Environment Variables</h2>
+
+<table>
+  <tr><th>Variable</th><th>Value</th><th>Where</th></tr>
+  <tr><td><code>MORTGAGE_DB_PATH</code></td><td><code>/home/ec2-user/mortgage/api/data/market.db</code></td><td>systemd service</td></tr>
+  <tr><td><code>ANTHROPIC_API_KEY</code></td><td><code>sk-ant-...</code></td><td>systemd service (or Secrets Manager)</td></tr>
+  <tr><td><code>NEXT_PUBLIC_API_URL</code></td><td><code>https://api.rentbuysellapp.com</code></td><td>build time only</td></tr>
+</table>
+
+<p>To add env vars to systemd, add <code>Environment=KEY=VALUE</code> lines to the <code>[Service]</code> section, then <code>sudo systemctl daemon-reload && sudo systemctl restart rentbuy</code>.</p>
+
+<div class="callout callout-warn">
+  <strong>Don't put ANTHROPIC_API_KEY in git.</strong> Use <code>Environment=</code> in systemd or AWS Secrets Manager.
+</div>
+
+<!-- ================================================================== -->
+<h2 id="cron">10. Data Refresh Cron</h2>
+
+<pre><code># SSH to EC2, then:
+crontab -e
+
+# Add this line (runs every Sunday at 6am UTC):
+0 6 * * 0 cd /home/ec2-user/mortgage/api && /usr/bin/python3.12 refresh_data.py >> /var/log/rentbuy-refresh.log 2>&1</code></pre>
+
+<p>For initial setup, run manually with <code>--skip-notifications</code>:</p>
+<pre><code>cd ~/mortgage/api && python3.12 refresh_data.py --skip-notifications</code></pre>
+
+<!-- ================================================================== -->
+<h2 id="cors">11. CORS for Production</h2>
+
+<p>In <code>api/api.py</code>, change:</p>
+<pre><code># Current (dev):
+allow_origins=["*"]
+
+# Production:
+allow_origins=[
+    "https://rentbuysellapp.com",
+    "https://www.rentbuysellapp.com",
+]</code></pre>
+
+<div class="callout callout-info">
+  <strong>For beta:</strong> you can leave <code>*</code> temporarily. Tighten before GA.
+</div>
+
+<!-- ================================================================== -->
+<h2 id="errors">12. Troubleshooting</h2>
+
+<table>
+  <tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr>
+  <tr><td>CloudFront returns 403</td><td>Missing S3 bucket policy for OAC</td><td>Copy policy from CF distribution, apply to S3 bucket</td></tr>
+  <tr><td>API CORS errors in browser</td><td>Origin not in allow_origins</td><td>Update CORS in <code>api.py</code>, restart service</td></tr>
+  <tr><td>SES "Email address is not verified"</td><td>Sandbox mode, recipient not verified</td><td>Verify recipient email, or request production access</td></tr>
+  <tr><td>SSL cert status "Pending validation"</td><td>DNS CNAME records not created</td><td>ACM &rarr; cert &rarr; "Create records in Route 53"</td></tr>
+  <tr><td><code>market.db</code> not found</td><td>Wrong <code>MORTGAGE_DB_PATH</code></td><td>Check env var in systemd, run <code>refresh_data.py</code></td></tr>
+  <tr><td>502 Bad Gateway from ALB</td><td>uvicorn not running on port 8000</td><td><code>sudo systemctl status rentbuy</code>, check logs</td></tr>
+  <tr><td>Old frontend after deploy</td><td>CloudFront cache</td><td><code>aws cloudfront create-invalidation --distribution-id EXXXX --paths "/*"</code></td></tr>
+  <tr><td>EC2 OOM / killed</td><td>t3.micro too small (1GB)</td><td>Use t3.small (2GB) minimum</td></tr>
+  <tr><td>FRED rate limit during refresh</td><td>Too many concurrent requests</td><td>Run weekly, not daily. One run at a time.</td></tr>
+  <tr><td>Page refresh returns 404/403</td><td>Missing custom error responses in CF</td><td>Add 403&rarr;/index.html (200) and 404&rarr;/index.html (200)</td></tr>
+  <tr><td>API slow on first request</td><td>Cold start: loading FRED CSVs into memory</td><td>ALB health check keeps it warm. First request takes ~2s, subsequent &lt;0.3s</td></tr>
+  <tr><td>SES DKIM fails verification</td><td>Wrong DNS records or propagation delay</td><td>Re-check CNAME records in Route 53, wait 10 min</td></tr>
+  <tr><td>Unexpected EC2 bill</td><td>Forgot to stop/terminate instance</td><td>Set a billing alarm: CloudWatch &rarr; Billing &rarr; $10 threshold</td></tr>
+  <tr><td>DNS not resolving</td><td>Propagation delay (up to 48h for new records)</td><td>Check with <code>dig rentbuysellapp.com</code>, usually 5&ndash;30 min</td></tr>
+  <tr><td>Cannot SSH to EC2</td><td>Security group doesn't allow port 22 from your IP</td><td>EC2 &rarr; Security groups &rarr; add SSH from My IP</td></tr>
+</table>
+
+<!-- ================================================================== -->
+<h2 id="verify">13. Post-Deploy Verification</h2>
+
+<ul class="checklist">
+  <li>Open <code>https://rentbuysellapp.com</code> &mdash; page loads with SSL padlock</li>
+  <li>Open <code>https://api.rentbuysellapp.com/health</code> &mdash; returns <code>{"status":"ok"}</code></li>
+  <li>Run a simulation from the UI &mdash; results appear</li>
+  <li>Open DevTools Network tab &mdash; API calls go to <code>api.rentbuysellapp.com</code></li>
+  <li>Test on mobile phone (same WiFi or cellular)</li>
+  <li>Reload the page &mdash; second load is fast (CloudFront cached)</li>
+  <li>Check <code>https://rentbuysellapp.com/robots.txt</code> loads</li>
+  <li>Check <code>https://rentbuysellapp.com/sitemap.xml</code> loads</li>
+  <li>Send test email to <code>feedback@rentbuysellapp.com</code> from a personal email</li>
+  <li>Submit Google Search Console: <a href="https://search.google.com/search-console">search.google.com/search-console</a> &rarr; add property &rarr; submit sitemap</li>
+</ul>
+
+<!-- ================================================================== -->
+<h2 id="cost">14. Estimated Monthly Cost</h2>
+
+<table>
+  <tr><th>Service</th><th>Config</th><th>Est. Cost</th></tr>
+  <tr><td>EC2 t3.small</td><td>On-demand, 24/7</td><td>$15/mo</td></tr>
+  <tr><td>Application Load Balancer</td><td>~1 LCU average</td><td>$18/mo</td></tr>
+  <tr><td>CloudFront</td><td>10 GB transfer</td><td>$1/mo</td></tr>
+  <tr><td>S3</td><td>50 MB static files</td><td>$0.01/mo</td></tr>
+  <tr><td>Route 53</td><td>1 hosted zone + queries</td><td>$0.50/mo</td></tr>
+  <tr><td>ACM certificates</td><td>2 certs</td><td>Free</td></tr>
+  <tr><td>SES</td><td>&lt;1000 emails/mo</td><td>Free tier</td></tr>
+  <tr><td colspan="2"><strong>Total</strong></td><td><strong>~$35/mo</strong></td></tr>
+</table>
+
+<div class="callout callout-info">
+  <strong>To cut costs:</strong> Use a Reserved Instance for EC2 (~$8/mo for 1yr commitment). Or skip the ALB entirely for beta and point <code>api.rentbuysellapp.com</code> directly to EC2 elastic IP with a self-signed cert from Let's Encrypt (free).
+</div>
+
+<!-- ================================================================== -->
+<h2 id="todo">15. TODO Before GA (After Beta)</h2>
+
+<ul class="checklist">
+  <li>CORS: restrict to production domains only</li>
+  <li>Rate limiting (API Gateway or nginx reverse proxy)</li>
+  <li>Authentication: Stripe Checkout + JWT for Pro tier</li>
+  <li>Monitoring: CloudWatch alarms for 5xx errors, CPU, memory</li>
+  <li>CI/CD: GitHub Actions &rarr; build &rarr; deploy to S3 + restart EC2</li>
+  <li>Database backups: daily S3 copy of market.db</li>
+  <li>WAF on CloudFront (block bots, SQL injection attempts)</li>
+  <li>Content-Security-Policy headers via CloudFront response headers policy</li>
+  <li>OpenGraph image: create <code>og-image.png</code> (1200x630) for social sharing</li>
+  <li>Google Analytics or Plausible for traffic tracking</li>
+  <li>SES production access (remove sandbox restriction)</li>
+  <li>Error tracking (Sentry or similar)</li>
+</ul>
+
+<!-- ================================================================== -->
+<h2 id="commands">16. Quick Reference Commands</h2>
+
+<h3>Deploy frontend</h3>
+<pre><code>cd web
+NEXT_PUBLIC_API_URL=https://api.rentbuysellapp.com npm run build
+aws s3 sync out/ s3://rentbuysellapp.com --delete
+aws cloudfront create-invalidation --distribution-id EXXXX --paths "/*"</code></pre>
+
+<h3>Deploy backend</h3>
+<pre><code>ssh -i key.pem ec2-user@&lt;ip&gt;
+cd mortgage && git pull
+cd api && pip install -r requirements.txt  # if deps changed
+sudo systemctl restart rentbuy</code></pre>
+
+<h3>Check logs</h3>
+<pre><code>sudo journalctl -u rentbuy -f          # live API logs
+tail -f /var/log/rentbuy-refresh.log   # data refresh logs</code></pre>
+
+<h3>Data refresh</h3>
+<pre><code>cd ~/mortgage/api && python3.12 refresh_data.py</code></pre>
+
+<h3>Test endpoints</h3>
+<pre><code>curl https://api.rentbuysellapp.com/health
+curl -X POST https://api.rentbuysellapp.com/summary \
+  -H "Content-Type: application/json" \
+  -d '{"monthly_rent":3000,"monthly_budget":5000}'</code></pre>
+
+</main>
+</div>
+</div>
+
+<script>
+// Copy button for code blocks
+document.querySelectorAll('pre').forEach(pre => {
+  const btn = document.createElement('button');
+  btn.className = 'copy-btn';
+  btn.textContent = 'Copy';
+  btn.onclick = () => {
+    navigator.clipboard.writeText(pre.querySelector('code').textContent);
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = 'Copy', 1500);
+  };
+  pre.appendChild(btn);
+});
+</script>
+</body>
+</html>

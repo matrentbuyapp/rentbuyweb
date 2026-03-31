@@ -25,6 +25,66 @@ function barColor(val: number): string {
   return "bg-rose-400";
 }
 
+function HeatmapTable({ heatmap }: { heatmap: SensitivityResponse["heatmap"] }) {
+  const { x_axis, y_axis, x_labels, y_labels, cells } = heatmap;
+
+  if (!cells || cells.length === 0 || x_labels.length === 0 || y_labels.length === 0) return null;
+
+  // Flatten to find max for color scaling
+  const allVals = cells.flat().map((c) => c?.net_difference).filter((v): v is number => v != null && !isNaN(v));
+  if (allVals.length === 0) return null;
+  const maxAbs = Math.max(...allVals.map(Math.abs), 1);
+
+  function heatColor(val: number): string {
+    const r = val / maxAbs;
+    if (r > 0.3) return "bg-emerald-300 text-emerald-900";
+    if (r > 0) return "bg-emerald-100 text-emerald-700";
+    if (r > -0.3) return "bg-rose-100 text-rose-700";
+    return "bg-rose-300 text-rose-900";
+  }
+
+  return (
+    <div className="pt-3 border-t border-gray-100">
+      <p className="text-[11px] font-medium text-gray-600 mb-2">
+        {PARAM_LABELS[x_axis] || x_axis} vs {PARAM_LABELS[y_axis] || y_axis}
+      </p>
+      <div className="overflow-x-auto -mx-2 px-2">
+        <table className="text-[10px] w-full border-collapse">
+          <thead>
+            <tr>
+              <th key="corner" className="p-1.5" />
+              {x_labels.map((x, i) => (
+                <th key={`x-${i}`} className="p-1.5 text-center text-gray-500 font-medium">{x}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {y_labels.map((y, yi) => (
+              <tr key={`y-${yi}`}>
+                <td className="p-1.5 text-gray-500 font-medium whitespace-nowrap">{y}</td>
+                {x_labels.map((_, xi) => {
+                  const cell = cells[yi]?.[xi];
+                  if (!cell || isNaN(cell.net_difference)) {
+                    return <td key={`c-${yi}-${xi}`} className="p-1.5 text-center text-gray-300">&mdash;</td>;
+                  }
+                  return (
+                    <td key={`c-${yi}-${xi}`} className={`p-1.5 text-center rounded font-medium ${heatColor(cell.net_difference)}`}>
+                      {formatCurrency(cell.net_difference)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-[10px] text-gray-400 mt-1.5 text-center">
+        Green = buying wins, Red = renting wins
+      </p>
+    </div>
+  );
+}
+
 export default function SensitivitySection({ data, loading, onLoad }: Props) {
   if (!data && !loading) {
     return (
@@ -48,8 +108,8 @@ export default function SensitivitySection({ data, loading, onLoad }: Props) {
   if (!data) return null;
 
   // Compute global range for bar scaling
-  const allValues = Object.values(data.axes).flatMap((pts) => pts.map((p) => p.net_difference));
-  const globalMax = Math.max(Math.abs(Math.min(...allValues)), Math.abs(Math.max(...allValues)), 1);
+  const allValues = Object.values(data.axes).flatMap((pts) => pts.map((p) => p.net_difference)).filter((v) => !isNaN(v));
+  const globalMax = allValues.length > 0 ? Math.max(Math.abs(Math.min(...allValues)), Math.abs(Math.max(...allValues)), 1) : 1;
 
   return (
     <div className="space-y-4">
@@ -90,59 +150,9 @@ export default function SensitivitySection({ data, loading, onLoad }: Props) {
       ))}
 
       {/* 2D heatmap */}
-      {data.heatmap && data.heatmap.cells && data.heatmap.cells.length > 0 && (() => {
-        const cells = data.heatmap.cells;
-        const xLabels = [...new Set(cells.map((c) => c.x_label))];
-        const yLabels = [...new Set(cells.map((c) => c.y_label))];
-        const maxAbs = Math.max(...cells.map((c) => Math.abs(c.net_difference)), 1);
-
-        function heatColor(val: number): string {
-          const r = val / maxAbs;
-          if (r > 0.3) return "bg-emerald-300 text-emerald-900";
-          if (r > 0) return "bg-emerald-100 text-emerald-700";
-          if (r > -0.3) return "bg-rose-100 text-rose-700";
-          return "bg-rose-300 text-rose-900";
-        }
-
-        return (
-          <div className="pt-3 border-t border-gray-100">
-            <p className="text-[11px] font-medium text-gray-600 mb-2">
-              {PARAM_LABELS[data.heatmap.x_param] || data.heatmap.x_param} vs {PARAM_LABELS[data.heatmap.y_param] || data.heatmap.y_param}
-            </p>
-            <div className="overflow-x-auto -mx-2 px-2">
-              <table className="text-[10px] w-full border-collapse">
-                <thead>
-                  <tr>
-                    <th className="p-1.5" />
-                    {xLabels.map((x) => (
-                      <th key={x} className="p-1.5 text-center text-gray-500 font-medium">{x}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {yLabels.map((y) => (
-                    <tr key={y}>
-                      <td className="p-1.5 text-gray-500 font-medium whitespace-nowrap">{y}</td>
-                      {xLabels.map((x) => {
-                        const cell = cells.find((c) => c.x_label === x && c.y_label === y);
-                        if (!cell) return <td key={x} className="p-1.5" />;
-                        return (
-                          <td key={x} className={`p-1.5 text-center rounded font-medium ${heatColor(cell.net_difference)}`}>
-                            {formatCurrency(cell.net_difference)}
-                          </td>
-                        );
-                      })}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="text-[10px] text-gray-400 mt-1.5 text-center">
-              Green = buying wins, Red = renting wins
-            </p>
-          </div>
-        );
-      })()}
+      {data.heatmap && data.heatmap.cells && data.heatmap.cells.length > 0 && (
+        <HeatmapTable heatmap={data.heatmap} />
+      )}
     </div>
   );
 }

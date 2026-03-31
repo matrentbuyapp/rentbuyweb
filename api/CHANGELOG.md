@@ -1,5 +1,18 @@
 # API Changelog
 
+## 2026-03-30 (continued)
+
+### New Features
+- **Refinance modeling** — on by default with conservative settings (1% threshold, $5K cost, 24mo cooldown, max 1 refi). Each MC sim checks the forecasted rate path monthly; if the market rate drops enough, the buyer refis (new amortization, closing costs deducted). Response includes `refi_summary` with: pct_sims_refinanced, avg_refi_month, avg_refi_rate, avg_payment_drop, refi_benefit (NW delta vs no-refi). PRO users can adjust all settings or disable.
+- **Trend `delta_from_now`** — each delay point now shows the change vs buying now (0 for delay=0). Previously showed absolute buyer-renter difference which didn't answer "when should I buy?"
+- **Home appreciation drift fix** — replaced historical HPI drift (which embedded the 2020-2025 boom at 15%/yr) with long-term national average (3.5%/yr) as baseline. Historical data contributes volatility only, not drift level. ZIP data still influences first 12 months when available. Non-monotonic timing trends are now possible.
+- **What-if trimmed to 5 defaults** — rates drop 1%, rates rise 1%, cheaper home, save 2 more years, crash next year. The 4 removed scenarios (rates drop 2%, 20% down, stay 5yr, savings only) still available via `scenario_ids`.
+
+## 2026-03-30
+
+### New Features
+- **`headline` object in SummaryResponse** — structured primary result for first-time users. Contains `winner` ("buy"/"rent"/"toss-up"), `short` (one-sentence answer with dollar amount), `detail` (two-sentence context with monthly cost comparison and breakeven timing), `confidence` ("high"/"moderate"/"low" based on crossing count and magnitude), `monthly_savings` (monthly cost difference). Score/verdict kept for PRO/power users.
+
 ## 2026-03-29 (continued, part 4)
 
 ### Improvements

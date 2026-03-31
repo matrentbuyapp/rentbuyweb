@@ -170,6 +170,18 @@ class SimulationPercentiles:
 
 
 @dataclass
+class RefiSummary:
+    """Aggregate refinance statistics across MC simulations."""
+    pct_sims_refinanced: float    # fraction of sims that found a refi opportunity
+    avg_refi_month: float | None  # average month of first refi (None if 0% refi'd)
+    avg_refi_rate: float | None   # average new rate after refi
+    avg_payment_drop: float       # average monthly payment reduction
+    avg_total_savings: float      # cumulative savings vs no-refi over remaining term
+    no_refi_buyer_net_worth: float  # final buyer NW without refi
+    refi_benefit: float           # with_refi NW - no_refi NW
+
+
+@dataclass
 class SimulationResult:
     monthly: list[MonthlySnapshot]
     avg_buyer_net_worth: float
@@ -177,9 +189,10 @@ class SimulationResult:
     house_price_used: float
     mortgage_rate_used: float
     property_tax_rate: float
-    breakeven_month: int | None       # sustained: last durable crossing where buyer stays ahead
-    crossing_count: int               # how many times buyer/renter lead swaps
+    breakeven_month: int | None
+    crossing_count: int
     percentiles: SimulationPercentiles
+    refi_summary: RefiSummary | None  # None when refi_enabled=False
 
 
 def estimate_house_price(
@@ -225,6 +238,7 @@ def run_simulation(
     stock_crash_prob: float | None = None,
     stock_crash_drop: float | None = None,
     crash_horizon_months: int | None = None,
+    _seed_offset: int = 0,  # internal: shift crash RNG seeds for independent timing
 ) -> SimulationResult:
     """Run the full Monte Carlo simulation.
 
@@ -307,8 +321,14 @@ def run_simulation(
     _home_val = np.empty((n_sims, months))
     _buyer_eq = np.empty((n_sims, months))
 
+    # Refi tracking across sims
+    _refi_months = []       # month of first refi per sim (only sims that refi'd)
+    _refi_rates = []        # new rate per sim
+    _refi_payment_drops = []  # payment reduction per sim
+    _no_refi_final_nw = []  # no-refi buyer NW at final month per sim
+
     for sim in range(n_sims):
-        rng_crash = np.random.default_rng(seed=10_000 + sim)
+        rng_crash = np.random.default_rng(seed=10_000 + sim + _seed_offset)
 
         # Start from cached paths
         stock_path = paths.stock_paths[sim].copy()
@@ -346,15 +366,22 @@ def run_simulation(
         if stock_leverage != 1.0:
             stock_path = 1.0 + stock_leverage * (stock_path - 1.0)
 
-        # Mortgage schedule — use forecasted rate at purchase month if delayed
+        # Per-sim adjustments for delayed purchase
         sim_rate = mortgage_rate
-        if use_forecasted_rate:
-            sim_rate = paths.rate_paths[sim][buy_delay] / 100 + rate_adj / 100
-        loan_amount = house_price * (1 - p.down_payment_pct)
-        amort = amortize(loan_amount, sim_rate, mortgage_term)
-        pmi = pmi_schedule(house_price, p.down_payment_pct, m.credit_quality, amort)
+        sim_price = house_price
+        if buy_delay > 0:
+            # Rate: use forecasted rate at purchase month
+            if use_forecasted_rate:
+                sim_rate = paths.rate_paths[sim][buy_delay] / 100 + rate_adj / 100
+            # Price: home value at purchase month (this sim's trajectory)
+            # home_path is cumulative index from 1.0, so home_path[delay] = appreciation factor
+            sim_price = house_price * home_path[buy_delay]
 
-        # Home values and property tax
+        loan_amount = sim_price * (1 - p.down_payment_pct)
+        amort = amortize(loan_amount, sim_rate, mortgage_term)
+        pmi = pmi_schedule(sim_price, p.down_payment_pct, m.credit_quality, amort)
+
+        # Home values and property tax (relative to original base price)
         home_values = house_price * home_path
         monthly_prop_tax = prop_tax_rate * home_values / 12
 
@@ -369,7 +396,17 @@ def run_simulation(
         renter_inv = u.initial_cash
         cum_buy = 0.0
         cum_rent = 0.0
-        sold = False  # tracks whether buyer has sold
+        sold = False
+
+        # Refi tracking
+        refi_cfg = cfg
+        refi_count = 0
+        refi_last_month = -9999  # when last refi happened
+        locked_rate = sim_rate   # the rate the buyer is paying
+        no_refi_buyer_inv = u.initial_cash  # parallel track without refi
+        sim_refi_month = None
+        sim_refi_rate = None
+        sim_orig_payment = amort[0].payment if amort else 0
 
         for month in range(months):
             stock_return = monthly_savings_return if savings_only else stock_path[month]
@@ -404,9 +441,10 @@ def run_simulation(
 
             # --- Purchase event ---
             if month == buy_delay:
-                down = house_price * p.down_payment_pct
-                closing = house_price * p.closing_cost_pct
+                down = sim_price * p.down_payment_pct
+                closing = sim_price * p.closing_cost_pct
                 buyer_inv = buyer_inv - down - closing - p.move_in_cost
+                no_refi_buyer_inv = buyer_inv  # both paths start equal at purchase
 
             # --- Sell event: liquidate equity, become renter ---
             if not sold and month >= sell_month:
@@ -445,13 +483,51 @@ def run_simulation(
 
             # --- Phase 2: Owning ---
             m_idx = month - buy_delay
+
+            # --- Refi check ---
+            if (refi_cfg.refi_enabled
+                and not sold
+                and refi_count < refi_cfg.refi_max_count
+                and m_idx >= refi_cfg.refi_min_months
+                and (month - refi_last_month) >= refi_cfg.refi_min_months
+                and m_idx < len(amort)):
+                market_rate = paths.rate_paths[sim][month] / 100
+                if locked_rate - market_rate >= refi_cfg.refi_threshold / 100:
+                    # Refi: new amort from remaining balance at market rate
+                    old_balance = amort[m_idx].remaining_balance
+                    remaining_term = mortgage_term - m_idx
+                    if remaining_term > 0 and old_balance > 0:
+                        new_rate = market_rate + rate_adj / 100
+                        refi_balance = old_balance
+                        if refi_cfg.refi_roll_costs:
+                            # Roll closing costs into the new loan
+                            refi_balance += refi_cfg.refi_closing_cost
+                        else:
+                            # Pay closing costs out of pocket
+                            buyer_inv -= refi_cfg.refi_closing_cost
+                        new_amort = amortize(refi_balance, new_rate, remaining_term)
+                        # Pad so amort[m_idx+k] works for the rest of ownership
+                        padded = list(amort[:m_idx]) + new_amort
+                        amort = padded
+                        # Recompute tax savings from refi point forward
+                        tax_save = monthly_tax_savings(
+                            amort, monthly_prop_tax[buy_delay:buy_delay + len(amort)],
+                            u.filing_status, u.yearly_income, state_tax_rate, u.other_deductions,
+                        )
+                        locked_rate = new_rate
+                        refi_count += 1
+                        refi_last_month = month
+                        if sim_refi_month is None:
+                            sim_refi_month = month
+                            sim_refi_rate = new_rate
+
             if m_idx < len(amort):
                 row = amort[m_idx]
                 mort_pmt = row.payment
                 interest = row.interest
                 princ = row.principal
                 balance = row.remaining_balance
-                pmi_amt = pmi[m_idx]
+                pmi_amt = pmi[m_idx] if m_idx < len(pmi) else 0.0
             else:
                 mort_pmt = interest = princ = balance = pmi_amt = 0.0
 
@@ -466,6 +542,11 @@ def run_simulation(
             equity = hv * (1 - p.sell_cost_pct) - balance
             buyer_nw = equity + buyer_inv
             cum_buy += total_cost
+
+            # Track no-refi parallel (uses original payment for comparison)
+            no_refi_cost = sim_orig_payment + maint + ptax + ins + pmi_amt - tsave
+            no_refi_surplus = budget - no_refi_cost
+            no_refi_buyer_inv = no_refi_buyer_inv * stock_return + no_refi_surplus
 
             snap = accum[month]
             snap.home_value += hv
@@ -492,6 +573,17 @@ def run_simulation(
             _renter_nw[sim, month] = renter_inv
             _home_val[sim, month] = hv
             _buyer_eq[sim, month] = equity
+
+        # Per-sim refi collection
+        last_m = accum[months - 1]
+        # no_refi NW: equity (same — refi doesn't change home value) + no_refi_inv
+        no_refi_eq = (home_values[months - 1] * (1 - p.sell_cost_pct) -
+                      (amort[months - 1 - buy_delay].remaining_balance if (months - 1 - buy_delay) < len(amort) and not sold else 0))
+        _no_refi_final_nw.append(no_refi_eq + no_refi_buyer_inv)
+        if sim_refi_month is not None:
+            _refi_months.append(sim_refi_month)
+            _refi_rates.append(sim_refi_rate)
+            _refi_payment_drops.append(sim_orig_payment - (amort[sim_refi_month - buy_delay].payment if (sim_refi_month - buy_delay) < len(amort) else sim_orig_payment))
 
     # --- Average all snapshots ---
     for snap in accum:
@@ -545,6 +637,32 @@ def run_simulation(
     if use_forecasted_rate:
         effective_rate = float(np.median(paths.rate_paths[:n_sims, buy_delay])) / 100 + rate_adj / 100
 
+    # --- Build refi summary ---
+    refi_summary = None
+    if cfg.refi_enabled and _refi_months:
+        avg_no_refi_nw = float(np.mean(_no_refi_final_nw))
+        with_refi_nw = accum[months - 1].buyer_net_worth
+        refi_summary = RefiSummary(
+            pct_sims_refinanced=len(_refi_months) / n_sims,
+            avg_refi_month=float(np.mean(_refi_months)),
+            avg_refi_rate=float(np.mean(_refi_rates)),
+            avg_payment_drop=float(np.mean(_refi_payment_drops)),
+            avg_total_savings=with_refi_nw - avg_no_refi_nw,
+            no_refi_buyer_net_worth=avg_no_refi_nw,
+            refi_benefit=with_refi_nw - avg_no_refi_nw,
+        )
+    elif cfg.refi_enabled:
+        avg_no_refi_nw = float(np.mean(_no_refi_final_nw))
+        refi_summary = RefiSummary(
+            pct_sims_refinanced=0,
+            avg_refi_month=None,
+            avg_refi_rate=None,
+            avg_payment_drop=0,
+            avg_total_savings=0,
+            no_refi_buyer_net_worth=avg_no_refi_nw,
+            refi_benefit=0,
+        )
+
     return SimulationResult(
         monthly=accum,
         avg_buyer_net_worth=accum[months - 1].buyer_net_worth,
@@ -555,4 +673,5 @@ def run_simulation(
         breakeven_month=breakeven_month,
         crossing_count=crossing_count,
         percentiles=percentiles,
+        refi_summary=refi_summary,
     )

@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { SummaryRequest, WhatIfResponse, SensitivityResponse, TrendResponse, LlmSummaryResponse } from "@/lib/types";
-import { loadResult, StoredSession } from "@/lib/resultStore";
+import { Scenario, SummaryRequest, WhatIfResponse, SensitivityResponse, TrendResponse, LlmSummaryResponse } from "@/lib/types";
+import { loadView, loadLiveResult, storeView, StoredSession } from "@/lib/resultStore";
 import { postWhatIf, postSensitivity, postTrend, postLlmSummary } from "@/lib/api";
 import { usePremium } from "@/hooks/usePremium";
+import { useScenarios } from "@/hooks/useScenarios";
 import QuickStats from "@/components/ui/QuickStats";
+import ViewSwitcher from "@/components/ui/ViewSwitcher";
 import ProBadge from "@/components/ui/ProBadge";
 import LlmSummarySection from "@/components/insights/LlmSummarySection";
 import WhatIfSection from "@/components/insights/WhatIfSection";
@@ -26,6 +28,14 @@ const SECTIONS = [
 export default function InsightsPage() {
   const [session, setSession] = useState<StoredSession | null>(null);
   const { isPro } = usePremium();
+  const scenarioCtx = useScenarios(isPro);
+  const [activeScenarioId, setActiveScenarioId] = useState<string | null>(null);
+
+  const activeScenario = activeScenarioId
+    ? scenarioCtx.scenarios.find((s) => s.id === activeScenarioId) ?? null
+    : session?.scenario_id
+      ? scenarioCtx.scenarios.find((s) => s.id === session.scenario_id) ?? null
+      : null;
 
   // Pro analysis state
   const [llmData, setLlmData] = useState<LlmSummaryResponse | null>(null);
@@ -33,19 +43,62 @@ export default function InsightsPage() {
   const [sensitivityData, setSensitivityData] = useState<SensitivityResponse | null>(null);
   const [trendData, setTrendData] = useState<TrendResponse | null>(null);
   const [loadingId, setLoadingId] = useState<string | null>(null);
+  const [errorId, setErrorId] = useState<string | null>(null);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
+  // Hydrate from localStorage — sync with what main page set
   useEffect(() => {
-    const stored = loadResult();
-    if (stored) setSession(stored);
+    const view = loadView();
+    if (view) {
+      setSession(view);
+      if (view.scenario_id) {
+        setActiveScenarioId(view.scenario_id);
+      }
+    }
   }, []);
 
-  const result = session?.result;
-  const inputs = session?.inputs;
+  // Also load live result separately so we know it's available
+  const [hasLive, setHasLive] = useState(false);
+  useEffect(() => {
+    const live = loadLiveResult();
+    if (live) setHasLive(true);
+  }, []);
+
+  // If viewing a saved scenario, use its data; otherwise use the stored session
+  const result = activeScenario?.response ?? session?.result;
+  const inputs = activeScenario?.inputs ?? session?.inputs;
+
+  const clearProData = () => {
+    setLlmData(null); setWhatIfData(null); setSensitivityData(null); setTrendData(null);
+  };
+
+  const handleSelectLive = () => {
+    setActiveScenarioId(null);
+    const live = loadLiveResult();
+    if (live) {
+      setSession(live);
+      storeView(live.result, live.inputs); // sync back to main page
+    }
+    clearProData();
+  };
+
+  const handleSelectScenario = (s: Scenario) => {
+    setActiveScenarioId(s.id);
+    if (s.response && s.inputs) {
+      setSession({
+        result: s.response, inputs: s.inputs,
+        cache_key: s.cache_key ?? null, data_vintage: s.data_vintage ?? null,
+        stored_at: Date.now(), scenario_name: s.name, scenario_id: s.id,
+      });
+      storeView(s.response, s.inputs, { id: s.id, name: s.name }); // sync back to main page
+    }
+    clearProData();
+  };
 
   const runAnalysis = useCallback(async (id: string) => {
     if (!inputs) return;
     setLoadingId(id);
+    setErrorId(null);
     try {
       switch (id) {
         case "ai-summary": setLlmData(await postLlmSummary(inputs)); break;
@@ -54,13 +107,27 @@ export default function InsightsPage() {
         case "trend": setTrendData(await postTrend(inputs)); break;
       }
     } catch (e) {
-      console.error(`Failed to load ${id}:`, e);
+      setErrorId(id);
     } finally {
       setLoadingId(null);
     }
   }, [inputs]);
 
   function renderProContent(id: string) {
+    if (errorId === id) {
+      return (
+        <div className="rounded-xl bg-rose-50/50 border border-rose-100 p-4 text-center">
+          <p className="text-xs text-rose-600">Failed to load. The API may be unavailable.</p>
+          <button
+            type="button"
+            onClick={() => runAnalysis(id)}
+            className="text-xs text-rose-500 underline mt-1 hover:text-rose-700"
+          >
+            Try again
+          </button>
+        </div>
+      );
+    }
     switch (id) {
       case "ai-summary":
         return <LlmSummarySection data={llmData} loading={loadingId === id} onLoad={() => runAnalysis(id)} />;
@@ -119,20 +186,30 @@ export default function InsightsPage() {
       {/* Header */}
       <header className="bg-white/70 backdrop-blur-md border-b border-gray-100 sticky top-0 z-50">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2.5 hover:opacity-80 transition-opacity">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-400 to-violet-400 flex items-center justify-center">
-              <span className="text-white text-sm font-bold">R</span>
-            </div>
+          <div className="flex items-center gap-2.5">
+            <Link href="/" className="hover:opacity-80 transition-opacity">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-400 to-violet-400 flex items-center justify-center">
+                <span className="text-white text-sm font-bold">R</span>
+              </div>
+            </Link>
             <div>
               <h1 className="text-sm font-bold text-gray-800 leading-tight">Pro Insights</h1>
-              <p className="text-[10px] text-gray-400 leading-tight">Deeper analysis for your scenario</p>
+              <ViewSwitcher
+                activeScenario={activeScenario}
+                scenarios={scenarioCtx.scenarios}
+                hasLive={hasLive}
+                onSelectLive={handleSelectLive}
+                onSelectScenario={handleSelectScenario}
+                compact
+                direction="down"
+              />
             </div>
-          </Link>
-          <Link href="/" className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors">
+          </div>
+          <Link href="/#results" className="text-xs text-gray-400 hover:text-gray-600 flex items-center gap-1 transition-colors">
             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
             </svg>
-            Back to calculator
+            Back to results
           </Link>
         </div>
       </header>
@@ -205,12 +282,21 @@ export default function InsightsPage() {
       {result && (
         <div className="fixed bottom-0 inset-x-0 z-50 safe-bottom">
           <div className="bg-white/80 backdrop-blur-md border-t border-gray-100">
-            <div className="max-w-4xl mx-auto px-4 py-2.5">
-              <QuickStats
-                result={result}
-                scenarioName={session?.scenario_name}
-                source={session?.scenario_name ? "saved" : "live"}
-              />
+            <div className="max-w-4xl mx-auto px-4 py-1.5 flex items-center">
+              <div className="w-[28%] shrink-0">
+                <ViewSwitcher
+                  activeScenario={activeScenario}
+                  scenarios={scenarioCtx.scenarios}
+                  hasLive={hasLive}
+                  onSelectLive={handleSelectLive}
+                  onSelectScenario={handleSelectScenario}
+                  compact
+                />
+              </div>
+              <span className="text-gray-200 shrink-0">|</span>
+              <div className="flex-1 min-w-0 overflow-hidden">
+                <QuickStats result={result} />
+              </div>
             </div>
           </div>
         </div>

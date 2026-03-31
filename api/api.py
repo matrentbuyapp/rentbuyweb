@@ -10,7 +10,7 @@ from typing import Optional
 from models import SimulationInput, UserProfile, PropertyParams, MortgageParams, SimulationConfig, MarketOutlook
 from market import get_data
 from simulator import run_simulation, estimate_house_price, MonthlySnapshot
-from scoring import compute_buy_score, compute_verdict
+from scoring import compute_buy_score, compute_verdict, compute_headline
 from sensitivity import run_sensitivity, run_whatif_scenarios, SensitivityPoint, AVAILABLE_AXES
 from trend import run_trend, run_zip_comparison, TrendPoint, ZipScore
 from llm_summary import generate_summary
@@ -91,6 +91,14 @@ class SummaryRequest(BaseModel):
     stay_years: Optional[int] = None                    # how long to own (None = same as years)
     num_simulations: int = 500
     buy_delay_months: int = 0
+
+    # Refinance (on by default with conservative settings; PRO can adjust)
+    refi_enabled: bool = True
+    refi_threshold: Optional[float] = None      # min rate drop to trigger. Default: 1.0%
+    refi_closing_cost: Optional[float] = None   # flat fee per refi. Default: $5,000
+    refi_max_count: Optional[int] = None         # max refis. Default: 1
+    refi_min_months: Optional[int] = None        # cooldown. Default: 24 months
+    refi_roll_costs: Optional[bool] = None       # roll closing costs into new loan. Default: true
 
     # Market outlook — free tier: preset name, pro tier: individual controls
     outlook_preset: str = "historical"  # "optimistic" | "historical" | "cautious" | "pessimistic" | "crisis"
@@ -176,21 +184,31 @@ class InputWarning(BaseModel):
     message: str      # human-readable explanation
 
 
+class HeadlineData(BaseModel):
+    winner: str           # "buy" | "rent" | "toss-up"
+    short: str            # "You'd be $47K richer buying after 10 years"
+    detail: str           # two sentences with context
+    confidence: str       # "high" | "moderate" | "low"
+    monthly_savings: float  # how much cheaper/month the winner's option is
+
+
 class SummaryResponse(BaseModel):
     cache_key: str            # SHA-256 hash of canonical inputs + data_vintage
     data_vintage: str         # ISO date of underlying market data (e.g. "2026-03-29")
+    headline: HeadlineData    # the primary result — what to show first-time users
     house_price: float
     mortgage_rate: float
     property_tax_rate: float
     avg_buyer_net_worth: float
     avg_renter_net_worth: float
-    buy_score: int            # 0-100, deterministic
+    buy_score: int            # 0-100, deterministic (keep for PRO/power users)
     verdict: str              # deterministic text from score
     breakeven_month: int | None  # sustained: when buyer durably pulls ahead (or None)
     crossing_count: int          # how many times buyer/renter lead swaps (0 = clear winner)
     warnings: list[InputWarning]  # validation warnings (empty if inputs are clean)
     monthly: list[MonthlyData]
     percentiles: PercentilesData
+    refi_summary: dict | None = None  # null when refi not applicable
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -263,6 +281,12 @@ def _request_to_input(req: SummaryRequest) -> SimulationInput:
             stay_years=req.stay_years,
             num_simulations=req.num_simulations,
             buy_delay_months=req.buy_delay_months,
+            refi_enabled=req.refi_enabled,
+            **({"refi_threshold": req.refi_threshold} if req.refi_threshold is not None else {}),
+            **({"refi_closing_cost": req.refi_closing_cost} if req.refi_closing_cost is not None else {}),
+            **({"refi_max_count": req.refi_max_count} if req.refi_max_count is not None else {}),
+            **({"refi_min_months": req.refi_min_months} if req.refi_min_months is not None else {}),
+            **({"refi_roll_costs": req.refi_roll_costs} if req.refi_roll_costs is not None else {}),
         ),
         outlook=_build_outlook(req),
     )
@@ -336,9 +360,14 @@ def _build_summary_response(
 ) -> dict:
     """Build the SummaryResponse dict from simulation result."""
     pct = result.percentiles
+    hl = compute_headline(result)
     return {
         "cache_key": cache_key,
         "data_vintage": data_vintage,
+        "headline": {
+            "winner": hl.winner, "short": hl.short, "detail": hl.detail,
+            "confidence": hl.confidence, "monthly_savings": hl.monthly_savings,
+        },
         "house_price": result.house_price_used,
         "mortgage_rate": result.mortgage_rate_used,
         "property_tax_rate": result.property_tax_rate,
@@ -357,6 +386,7 @@ def _build_summary_response(
             "buyer_equity": vars(pct.buyer_equity),
             "mortgage_rate": vars(pct.mortgage_rate),
         },
+        "refi_summary": vars(result.refi_summary) if result.refi_summary else None,
     }
 
 
@@ -626,6 +656,10 @@ class TrendPointOut(BaseModel):
     mortgage_rate_used: float
     house_price_used: float
     first_month_cost: float
+    delta_from_now: float  # change vs buying now (0 for delay=0, positive = waiting helps)
+    diff_p10: float    # pessimistic: buyer NW P10 - renter median
+    diff_p50: float    # median outcome
+    diff_p90: float    # optimistic: buyer NW P90 - renter median
 
 
 class TrendResponse(BaseModel):
@@ -654,6 +688,8 @@ def trend(req: TrendRequest):
                 yearly_scores=p.yearly_scores, aggregate_score=p.aggregate_score,
                 mortgage_rate_used=p.mortgage_rate_used, house_price_used=p.house_price_used,
                 first_month_cost=p.first_month_cost,
+                delta_from_now=p.delta_from_now,
+                diff_p10=p.diff_p10, diff_p50=p.diff_p50, diff_p90=p.diff_p90,
             )
             for p in result.points
         ],

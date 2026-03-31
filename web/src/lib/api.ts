@@ -53,6 +53,11 @@ export function formToRequest(form: FormData): SummaryRequest {
     stock_recovery_months: form.stock_recovery_months,
     rate_target: form.rate_target ? Number(form.rate_target) / 100 : null,
     rate_volatility_scale: form.rate_volatility_scale !== "1.0" ? Number(form.rate_volatility_scale) : null,
+    refi_enabled: form.refi_enabled,
+    refi_threshold: form.refi_threshold,
+    refi_closing_cost: form.refi_closing_cost,
+    refi_max_count: form.refi_max_count,
+    refi_min_months: form.refi_min_months,
   };
 }
 

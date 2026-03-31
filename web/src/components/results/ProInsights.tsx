@@ -190,12 +190,10 @@ export default function ProInsights({ result, isPro }: Props) {
           <div className="h-px flex-1 bg-gray-200/60" />
         </div>
         <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
-          {PRO_FEATURES.map((f) => (
-            <Link
-              key={f.id}
-              href={`/insights#${f.id}`}
-              className={`rounded-2xl border bg-gradient-to-br p-5 card-hover block ${ACCENT[f.id]}`}
-            >
+          {PRO_FEATURES.map((f) => {
+            const isLive = ["ai-summary", "whatif", "sensitivity", "trend"].includes(f.id);
+            const cls = `rounded-2xl border bg-gradient-to-br p-5 card-hover block ${ACCENT[f.id]} ${!isLive ? "opacity-70" : ""}`;
+            const inner = (
               <div className="flex items-start gap-3">
                 <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${ICON_BG[f.id]}`}>
                   {ICONS[f.id]}
@@ -203,10 +201,16 @@ export default function ProInsights({ result, isPro }: Props) {
                 <div>
                   <h3 className="text-sm font-semibold text-gray-700">{f.title}</h3>
                   <p className="text-xs text-gray-400 mt-1">{f.description}</p>
+                  {!isLive && <p className="text-[10px] text-gray-400 mt-2 italic">Coming soon</p>}
                 </div>
               </div>
-            </Link>
-          ))}
+            );
+            return isLive ? (
+              <Link key={f.id} href={`/insights#${f.id}`} className={cls}>{inner}</Link>
+            ) : (
+              <div key={f.id} className={cls}>{inner}</div>
+            );
+          })}
         </div>
       </div>
     );
@@ -230,26 +234,24 @@ export default function ProInsights({ result, isPro }: Props) {
             <div key={f.id} className="flex flex-col">
               <button
                 onClick={() => setExpandedId(isExpanded ? null : f.id)}
-                className={`text-left rounded-xl border bg-gradient-to-br p-4 transition-all card-hover ${ACCENT[f.id]}
+                className={`text-left rounded-xl border bg-gradient-to-br p-3 transition-all card-hover ${ACCENT[f.id]}
                   ${isExpanded ? "rounded-b-none border-b-0" : ""}`}
               >
-                <div className="flex items-center gap-2.5">
-                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${ICON_BG[f.id]}`}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 [&_svg]:w-3.5 [&_svg]:h-3.5 ${ICON_BG[f.id]}`}>
                     {ICONS[f.id]}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5">
-                      <span className="text-sm font-medium text-gray-700">{f.title}</span>
-                      <ProBadge />
-                    </div>
+                  <div className="flex items-center gap-1">
+                    <ProBadge />
+                    <svg
+                      className={`w-3 h-3 text-gray-300 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
                   </div>
-                  <svg
-                    className={`w-4 h-4 text-gray-300 shrink-0 transition-transform duration-200 ${isExpanded ? "rotate-180" : ""}`}
-                    fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
                 </div>
+                <p className="text-xs font-medium text-gray-700 leading-snug">{f.title}</p>
               </button>
               {isExpanded && (
                 <div className={`rounded-b-xl border border-t-0 bg-gradient-to-br overflow-hidden ${ACCENT[f.id]}`}>

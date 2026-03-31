@@ -12,7 +12,9 @@ import { useScenarios } from "@/hooks/useScenarios";
 import { useZipPrices } from "@/hooks/useZipPrices";
 import { formToRequest } from "@/lib/api";
 import QuickStats from "@/components/ui/QuickStats";
-import { storeResult } from "@/lib/resultStore";
+import ProBadge from "@/components/ui/ProBadge";
+import ViewSwitcher from "@/components/ui/ViewSwitcher";
+import { storeView, loadView, loadLiveResult } from "@/lib/resultStore";
 import { SummaryResponse, Scenario } from "@/lib/types";
 
 export default function Home() {
@@ -22,24 +24,37 @@ export default function Home() {
   const scenarioCtx = useScenarios(isPro);
   const zipPrices = useZipPrices();
   const settingsRef = useRef<HTMLDivElement>(null);
+  const scenariosRef = useRef<HTMLDivElement>(null);
   const heroButtonRef = useRef<HTMLDivElement>(null);
   const [showBottomBar, setShowBottomBar] = useState(false);
 
   // Track whether we're viewing a saved scenario vs live results
   const [viewingScenario, setViewingScenario] = useState<Scenario | null>(null);
   const [liveResult, setLiveResult] = useState<SummaryResponse | null>(null);
+  const displayResult = viewingScenario?.response ?? result;
 
-  // When simulation runs, it's a live result — clear any scenario view
-  const displayResult = viewingScenario ? viewingScenario.response : result;
-
-  // Keep liveResult in sync with simulation result
+  // Always capture the latest simulation result as liveResult
   const prevResult = useRef(result);
   if (result !== prevResult.current) {
     prevResult.current = result;
-    if (result && !viewingScenario) {
-      setLiveResult(result);
-    }
+    if (result) setLiveResult(result);
   }
+
+  // Hydrate view state on mount — sync with what insights page may have set
+  useEffect(() => {
+    const live = loadLiveResult();
+    if (live) setLiveResult(live.result);
+    const view = loadView();
+    if (view?.scenario_id && isPro) {
+      const match = scenarioCtx.scenarios.find((s) => s.id === view.scenario_id);
+      if (match) setViewingScenario(match);
+    }
+    // Scroll to results if coming back from another page with results
+    if ((live || view) && window.location.hash === "#results") {
+      setTimeout(() => resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 200);
+      window.history.replaceState(null, "", "/");
+    }
+  }, [isPro, scenarioCtx.scenarios]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Show sticky bottom bar when hero Calculate button scrolls out of view
   useEffect(() => {
@@ -69,7 +84,7 @@ export default function Home() {
     setViewingScenario(scenario);
     if (scenario.response) {
       setResult(scenario.response);
-      storeResult(scenario.response, scenario.inputs, { id: scenario.id, name: scenario.name });
+      storeView(scenario.response, scenario.inputs, { id: scenario.id, name: scenario.name });
     }
     setTimeout(() => scrollToResults(), 50);
   };
@@ -89,6 +104,8 @@ export default function Home() {
     setViewingScenario(null);
     if (liveResult) {
       setResult(liveResult);
+      const live = loadLiveResult();
+      if (live) storeView(live.result, live.inputs);
     }
   };
 
@@ -109,7 +126,10 @@ export default function Home() {
               <span className="text-white text-sm font-bold">R</span>
             </div>
             <div>
-              <h1 className="text-sm font-bold text-gray-800 leading-tight">Rent vs Buy</h1>
+              <div className="flex items-center gap-1.5">
+                <h1 className="text-sm font-bold text-gray-800 leading-tight">Rent vs Buy</h1>
+                <span className="text-[9px] font-bold uppercase tracking-wider text-violet-500 bg-violet-50 border border-violet-200 rounded-full px-1.5 py-0.5 leading-none">Beta</span>
+              </div>
               <p className="text-[10px] text-gray-400 leading-tight">Should you rent or buy a home?</p>
             </div>
           </div>
@@ -139,7 +159,7 @@ export default function Home() {
               {" "}or buy?
             </h2>
             <p className="text-sm text-gray-400 mt-2 leading-relaxed">
-              Where will you be in {formData.stay_years} years? We run hundreds of simulations
+              Where will you be in 10 years? We run hundreds of simulations
               <br className="hidden sm:block" />
               {" "}using real market data to find out which option builds more wealth.
             </p>
@@ -155,8 +175,8 @@ export default function Home() {
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                   <input
                     type="text"
-                    value={formData.monthly_rent}
-                    onChange={(e) => updateField("monthly_rent", Number(e.target.value) || 0)}
+                    value={formData.monthly_rent || ""}
+                    onChange={(e) => updateField("monthly_rent", e.target.value === "" ? 0 : Number(e.target.value))}
                     className="w-full rounded-xl border border-gray-200 bg-white pl-7 pr-3 py-3 text-lg font-semibold text-gray-700
                       focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
                   />
@@ -171,8 +191,8 @@ export default function Home() {
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                   <input
                     type="text"
-                    value={formData.monthly_budget}
-                    onChange={(e) => updateField("monthly_budget", Number(e.target.value) || 0)}
+                    value={formData.monthly_budget || ""}
+                    onChange={(e) => updateField("monthly_budget", e.target.value === "" ? 0 : Number(e.target.value))}
                     className="w-full rounded-xl border border-gray-200 bg-white pl-7 pr-3 py-3 text-lg font-semibold text-gray-700
                       focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
                   />
@@ -187,7 +207,7 @@ export default function Home() {
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 text-sm">$</span>
                   <input
                     type="text"
-                    value={formData.initial_cash}
+                    value={formData.initial_cash || ""}
                     onChange={(e) => updateField("initial_cash", Number(e.target.value) || 0)}
                     className="w-full rounded-xl border border-gray-200 bg-white pl-7 pr-3 py-3 text-lg font-semibold text-gray-700
                       focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 outline-none transition-all"
@@ -276,38 +296,34 @@ export default function Home() {
 
         {/* Results + context banner */}
         <div ref={resultsRef} className="scroll-mt-16">
-          {/* Viewing indicator */}
-          {viewingScenario && (
-            <div className="flex items-center gap-3 mb-3 rounded-xl border border-indigo-100 bg-indigo-50/50 px-4 py-2.5">
-              <svg className="w-4 h-4 text-indigo-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 5a2 2 0 012-2h10a2 2 0 012 2v16l-7-3.5L5 21V5z" />
-              </svg>
-              <div className="flex-1 min-w-0">
-                <p className="text-xs font-medium text-indigo-700 truncate">
-                  Viewing: {viewingScenario.name}
-                </p>
-                <p className="text-[10px] text-indigo-400">
-                  Saved {new Date(viewingScenario.created_at * 1000).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
-                  {viewingScenario.data_vintage && ` · Data: ${viewingScenario.data_vintage}`}
-                </p>
-              </div>
-              <button
-                onClick={dismissScenarioView}
-                className="text-xs text-indigo-500 hover:text-indigo-700 font-medium px-2 py-1 rounded-lg
-                  hover:bg-indigo-100/50 transition-colors shrink-0"
-              >
-                {liveResult ? "Back to live results" : "Dismiss"}
-              </button>
-            </div>
-          )}
-          {/* Save button — only for live results */}
-          {displayResult && isPro && !viewingScenario && (
-            <div className="flex justify-end mb-2">
-              <SaveButton
-                inputs={formToRequest(formData)}
-                response={displayResult}
-                onSave={scenarioCtx.save}
+          {/* Results context bar — stable layout, always shows what you're viewing */}
+          {displayResult && (
+            <div className="flex items-center gap-2 mb-3 rounded-xl border border-gray-100 bg-white/60 backdrop-blur-sm px-2 py-1.5">
+              <ViewSwitcher
+                activeScenario={viewingScenario}
+                scenarios={scenarioCtx.scenarios}
+                hasLive={!!liveResult}
+                onSelectLive={dismissScenarioView}
+                onSelectScenario={handleViewScenario}
+                direction="down"
               />
+              <div className="flex-1" />
+              {isPro && !viewingScenario ? (
+                <SaveButton
+                  inputs={formToRequest(formData)}
+                  response={displayResult}
+                  onSave={async (name, inputs, response) => {
+                    const scenario = await scenarioCtx.save(name, inputs, response);
+                    handleViewScenario(scenario as Scenario);
+                    return scenario;
+                  }}
+                />
+              ) : !isPro ? (
+                <span className="flex items-center gap-1.5 text-[11px] text-gray-400">
+                  <ProBadge />
+                  <span>Save &amp; compare</span>
+                </span>
+              ) : null}
             </div>
           )}
           <ResultsDashboard
@@ -318,10 +334,22 @@ export default function Home() {
 
         {/* Saved Scenarios (Pro only) */}
         {isPro && (
-          <section>
+          <section ref={scenariosRef} className="scroll-mt-20">
             <div className="flex items-center gap-3 mb-3">
               <h2 className="text-sm font-semibold text-gray-500">My Scenarios</h2>
               <div className="h-px flex-1 bg-gray-200/60" />
+              {scenarioCtx.scenarios.length >= 2 && (
+                <Link
+                  href="/compare"
+                  className="text-[11px] text-indigo-500 hover:text-indigo-700 font-medium px-2.5 py-1 rounded-lg
+                    border border-indigo-200 hover:bg-indigo-50 transition-colors flex items-center gap-1"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7" />
+                  </svg>
+                  Compare
+                </Link>
+              )}
             </div>
             <ScenarioList
               scenarios={scenarioCtx.scenarios}
@@ -340,7 +368,7 @@ export default function Home() {
             <h2 className="text-sm font-semibold text-gray-500">Settings</h2>
             <div className="h-px flex-1 bg-gray-200/60" />
             <button
-              onClick={resetAll}
+              onClick={() => { resetAll(); setViewingScenario(null); setLiveResult(null); }}
               className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors"
             >
               Reset all
@@ -382,10 +410,30 @@ export default function Home() {
             </div>
           </div>
 
+          {/* Feedback */}
+          <div>
+            <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Feedback</h3>
+            <p className="text-[11px] text-gray-400 leading-relaxed">
+              This is a beta release. Found a bug, have a suggestion, or want to say hi?
+            </p>
+            <a
+              href="mailto:feedback@rentbuysellapp.com?subject=Rent%20vs%20Buy%20Beta%20Feedback"
+              className="inline-flex items-center gap-1.5 mt-2 text-xs font-medium text-indigo-500 hover:text-indigo-700 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+              </svg>
+              feedback@rentbuysellapp.com
+            </a>
+          </div>
+
           {/* Copyright */}
-          <p className="text-[10px] text-gray-300">
-            &copy; {new Date().getFullYear()} rentbuysellapp.com
-          </p>
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] text-gray-300">
+              &copy; {new Date().getFullYear()} rentbuysellapp.com
+            </p>
+            <span className="text-[9px] font-bold uppercase tracking-wider text-violet-400 bg-violet-50 border border-violet-100 rounded-full px-2 py-0.5">Beta</span>
+          </div>
         </footer>
       </div>
 
@@ -397,12 +445,21 @@ export default function Home() {
         <div className="bg-white/80 backdrop-blur-md border-t border-gray-100">
           {/* Quick reference stats */}
           {displayResult && (
-            <div className="max-w-5xl mx-auto px-4 pt-2 pb-0">
-              <QuickStats
-                result={displayResult}
-                scenarioName={viewingScenario?.name}
-                source={viewingScenario ? "saved" : hasRun ? "live" : null}
-              />
+            <div className="max-w-5xl mx-auto px-4 pt-1.5 pb-0 flex items-center">
+              <div className="w-[28%] shrink-0">
+                <ViewSwitcher
+                  activeScenario={viewingScenario}
+                  scenarios={scenarioCtx.scenarios}
+                  hasLive={!!liveResult}
+                  onSelectLive={dismissScenarioView}
+                  onSelectScenario={handleViewScenario}
+                  compact
+                />
+              </div>
+              <span className="text-gray-200 shrink-0">|</span>
+              <div className="flex-1 min-w-0 overflow-hidden">
+                <QuickStats result={displayResult} />
+              </div>
             </div>
           )}
           {/* Action buttons */}
@@ -453,13 +510,16 @@ export default function Home() {
             {/* Pro quick actions: Save + Insights */}
             {isPro && displayResult && !viewingScenario && (
               <button
-                onClick={() => {
+                onClick={async () => {
                   const name = `Scenario ${new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" })}`;
-                  scenarioCtx.save(name, formToRequest(formData), displayResult);
+                  const scenario = await scenarioCtx.save(name, formToRequest(formData), displayResult!);
+                  handleViewScenario(scenario as Scenario);
                 }}
-                className="py-2.5 px-3 rounded-xl border border-gray-200 text-gray-500
+                type="button"
+                className="py-2.5 px-4 rounded-xl border border-gray-200 text-gray-500
                   hover:border-indigo-300 hover:text-indigo-600 hover:bg-indigo-50/50
-                  transition-all active:scale-[0.98]"
+                  active:bg-indigo-100/50
+                  transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
                 title="Quick save scenario"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

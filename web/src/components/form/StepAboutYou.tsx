@@ -34,7 +34,7 @@ export default function StepAboutYou({ formData, updateField }: Props) {
       <InputField
         label="Annual Income"
         value={formData.yearly_income}
-        onChange={(v) => updateField("yearly_income", Number(v) || 0)}
+        onChange={(v) => updateField("yearly_income", v)}
         prefix="$"
       />
     </div>
