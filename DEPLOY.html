@@ -93,8 +93,9 @@
   <a href="#errors">12. Troubleshooting</a>
   <a href="#verify">13. Post-Deploy Checklist</a>
   <a href="#cost">14. Cost Estimate</a>
-  <a href="#todo">15. TODO Before GA</a>
-  <a href="#commands">16. Quick Reference</a>
+  <a href="#scripts">15. Deploy Scripts</a>
+  <a href="#todo">16. TODO Before GA</a>
+  <a href="#commands">17. Quick Reference</a>
 </nav>
 
 <!-- Content -->
@@ -440,7 +441,132 @@ allow_origins=[
 </div>
 
 <!-- ================================================================== -->
-<h2 id="todo">15. TODO Before GA (After Beta)</h2>
+<h2 id="scripts">15. Deploy Scripts</h2>
+
+<p>Two scripts in <code>deploy/</code> automate nearly everything. The first creates all AWS resources (run once); the second deploys code (run every time).</p>
+
+<h3>File overview</h3>
+<table>
+  <tr><th>File</th><th>Purpose</th><th>When to run</th></tr>
+  <tr><td><code>deploy/setup-aws.sh</code></td><td>Creates all AWS infrastructure from scratch</td><td>Once, at initial setup</td></tr>
+  <tr><td><code>deploy/deploy.sh</code></td><td>Builds &amp; deploys code to existing infrastructure</td><td>Every deploy</td></tr>
+  <tr><td><code>deploy/.aws-state</code></td><td>Tracks resource IDs (auto-generated, do not delete)</td><td>Read by both scripts</td></tr>
+  <tr><td><code>deploy/rentbuy-key.pem</code></td><td>EC2 SSH key (auto-generated, <strong>back this up</strong>)</td><td>Used by deploy.sh for SSH/rsync</td></tr>
+</table>
+
+<div class="callout callout-warn">
+  <strong>Do not commit <code>deploy/.aws-state</code> or <code>deploy/rentbuy-key.pem</code> to git.</strong> Add them to <code>.gitignore</code>. The state file contains account-specific resource IDs; the key file is a private SSH key.
+</div>
+
+<h3><code>setup-aws.sh</code> &mdash; One-time infrastructure setup</h3>
+
+<p>Creates everything from zero. Idempotent: re-running skips resources that already exist (tracked in <code>.aws-state</code>).</p>
+
+<p><strong>What it creates:</strong></p>
+<ol>
+  <li><strong>ACM certificate</strong> for <code>*.rentbuysellapp.com</code> + auto-creates DNS validation records in Route 53</li>
+  <li><strong>S3 bucket</strong> (<code>rentbuysellapp.com</code>) with public access blocked</li>
+  <li><strong>CloudFront distribution</strong> with OAC, custom error responses (403/404 &rarr; index.html), HTTPS redirect, HTTP/2+3</li>
+  <li><strong>S3 bucket policy</strong> granting CloudFront OAC access</li>
+  <li><strong>EC2 instance</strong> (t3.small, Amazon Linux 2023) with security group (SSH + port 8000)</li>
+  <li><strong>Elastic IP</strong> for stable DNS</li>
+  <li><strong>EC2 user-data</strong> that installs Python 3.12, pip deps, creates systemd service</li>
+  <li><strong>Route 53 records</strong>: domain &rarr; CloudFront, api subdomain &rarr; Elastic IP</li>
+  <li><strong>SES domain verification</strong> + DKIM records in Route 53</li>
+</ol>
+
+<pre><code># Prerequisites: AWS CLI configured, domain in Route 53
+chmod +x deploy/setup-aws.sh
+./deploy/setup-aws.sh
+
+# Takes ~5 minutes. Waits for ACM cert validation.
+# Prints next steps when done.</code></pre>
+
+<p><strong>After it finishes, you still need to:</strong></p>
+<ul>
+  <li>Upload <code>market.db</code> to EC2: <code>./deploy/deploy.sh data</code></li>
+  <li>SSH in and set <code>ANTHROPIC_API_KEY</code> in the systemd service (if using /llm-summary)</li>
+  <li>Replace <code>YOUR_USER</code> in the EC2 user-data git clone URL (or just use <code>deploy.sh backend</code> to rsync)</li>
+  <li>Request SES production access (Console: SES &rarr; Account dashboard &rarr; Request production access)</li>
+  <li>Set up feedback email forwarding (see <a href="#feedback-email">Section 8</a>)</li>
+</ul>
+
+<h3><code>deploy.sh</code> &mdash; Code deployment</h3>
+
+<p>Builds and deploys to existing infrastructure. Reads resource IDs from <code>.aws-state</code>.</p>
+
+<table>
+  <tr><th>Command</th><th>What it does</th><th>Duration</th></tr>
+  <tr>
+    <td><code>./deploy/deploy.sh</code></td>
+    <td>Deploy everything (frontend + backend)</td>
+    <td>~30s</td>
+  </tr>
+  <tr>
+    <td><code>./deploy/deploy.sh frontend</code></td>
+    <td>Build Next.js, sync to S3, invalidate CloudFront</td>
+    <td>~15s</td>
+  </tr>
+  <tr>
+    <td><code>./deploy/deploy.sh backend</code></td>
+    <td>Rsync <code>api/</code> to EC2 (excludes data/), restart systemd service, health check</td>
+    <td>~10s</td>
+  </tr>
+  <tr>
+    <td><code>./deploy/deploy.sh data</code></td>
+    <td>Upload <code>market.db</code> to EC2 via SCP</td>
+    <td>~30s (108 MB)</td>
+  </tr>
+  <tr>
+    <td><code>./deploy/deploy.sh invalidate</code></td>
+    <td>CloudFront cache invalidation only</td>
+    <td>~2s</td>
+  </tr>
+</table>
+
+<pre><code># Typical workflow after code changes:
+./deploy/deploy.sh frontend     # frontend-only change
+./deploy/deploy.sh backend      # backend-only change
+./deploy/deploy.sh              # both
+
+# After running refresh_data.py locally:
+./deploy/deploy.sh data          # upload new market.db</code></pre>
+
+<h3>What's scripted vs what needs Console</h3>
+
+<table>
+  <tr><th>Task</th><th>Scripted?</th><th>Notes</th></tr>
+  <tr><td>ACM certificate + DNS validation</td><td>Yes</td><td>Script waits for validation</td></tr>
+  <tr><td>S3 bucket + policy</td><td>Yes</td><td></td></tr>
+  <tr><td>CloudFront + OAC</td><td>Yes</td><td>Full config including error responses</td></tr>
+  <tr><td>EC2 launch + systemd service</td><td>Yes</td><td>User-data installs everything</td></tr>
+  <tr><td>Elastic IP + DNS records</td><td>Yes</td><td></td></tr>
+  <tr><td>SES domain + DKIM</td><td>Yes</td><td></td></tr>
+  <tr><td>Frontend deploys</td><td>Yes</td><td>Build + S3 sync + CF invalidation</td></tr>
+  <tr><td>Backend deploys</td><td>Yes</td><td>Rsync + systemd restart</td></tr>
+  <tr><td class="callout-warn" style="border:0;background:var(--warn-bg)">SES production access</td><td>Console</td><td>Requires writing justification in SES dashboard</td></tr>
+  <tr><td class="callout-warn" style="border:0;background:var(--warn-bg)">ANTHROPIC_API_KEY</td><td>SSH</td><td>Edit systemd service file on EC2</td></tr>
+  <tr><td class="callout-warn" style="border:0;background:var(--warn-bg)">Feedback email forwarding</td><td>Console or 3rd party</td><td>ImprovMX (5 min) or SES receiving rules</td></tr>
+</table>
+
+<h3>State file format (<code>deploy/.aws-state</code>)</h3>
+<p>Simple key=value file. Example:</p>
+<pre><code>HOSTED_ZONE_ID=Z0123456789ABC
+CERT_ARN=arn:aws:acm:us-east-1:123456789:certificate/abc-def
+CF_DIST_ID=E1ABCDEF2GHIJK
+CF_DOMAIN=d123abc.cloudfront.net
+OAC_ID=E2LMNOP3QRSTUV
+EC2_ID=i-0abc123def456789
+SG_ID=sg-0abc123def456789
+EIP=54.123.45.67
+EIP_ALLOC=eipalloc-0abc123def456789</code></pre>
+
+<div class="callout callout-info">
+  <strong>Lost your state file?</strong> You can reconstruct it from the AWS Console. Look up each resource ID in EC2, CloudFront, ACM, etc. and recreate the file manually.
+</div>
+
+<!-- ================================================================== -->
+<h2 id="todo">16. TODO Before GA (After Beta)</h2>
 
 <ul class="checklist">
   <li>CORS: restrict to production domains only</li>
@@ -458,32 +584,47 @@ allow_origins=[
 </ul>
 
 <!-- ================================================================== -->
-<h2 id="commands">16. Quick Reference Commands</h2>
+<h2 id="commands">17. Quick Reference Commands</h2>
 
-<h3>Deploy frontend</h3>
-<pre><code>cd web
-NEXT_PUBLIC_API_URL=https://api.rentbuysellapp.com npm run build
+<h3>Deploy (uses scripts)</h3>
+<pre><code># First time — create all AWS infrastructure:
+./deploy/setup-aws.sh
+
+# Every deploy:
+./deploy/deploy.sh                 # frontend + backend
+./deploy/deploy.sh frontend       # frontend only (build + S3 + CF invalidation)
+./deploy/deploy.sh backend        # backend only (rsync + restart)
+./deploy/deploy.sh data           # upload market.db to EC2
+./deploy/deploy.sh invalidate     # just bust CloudFront cache</code></pre>
+
+<h3>Manual equivalents (if scripts aren't available)</h3>
+<pre><code># Frontend
+cd web && NEXT_PUBLIC_API_URL=https://api.rentbuysellapp.com npm run build
 aws s3 sync out/ s3://rentbuysellapp.com --delete
-aws cloudfront create-invalidation --distribution-id EXXXX --paths "/*"</code></pre>
+aws cloudfront create-invalidation --distribution-id $(grep CF_DIST_ID deploy/.aws-state | cut -d= -f2) --paths "/*"
 
-<h3>Deploy backend</h3>
-<pre><code>ssh -i key.pem ec2-user@&lt;ip&gt;
-cd mortgage && git pull
-cd api && pip install -r requirements.txt  # if deps changed
-sudo systemctl restart rentbuy</code></pre>
+# Backend
+EIP=$(grep EIP= deploy/.aws-state | head -1 | cut -d= -f2)
+rsync -avz --exclude data/ --exclude __pycache__/ -e "ssh -i deploy/rentbuy-key.pem" api/ ec2-user@$EIP:~/mortgage/api/
+ssh -i deploy/rentbuy-key.pem ec2-user@$EIP "sudo systemctl restart rentbuy"</code></pre>
+
+<h3>SSH into EC2</h3>
+<pre><code>EIP=$(grep EIP= deploy/.aws-state | head -1 | cut -d= -f2)
+ssh -i deploy/rentbuy-key.pem ec2-user@$EIP</code></pre>
 
 <h3>Check logs</h3>
-<pre><code>sudo journalctl -u rentbuy -f          # live API logs
-tail -f /var/log/rentbuy-refresh.log   # data refresh logs</code></pre>
+<pre><code># On EC2:
+sudo journalctl -u rentbuy -f              # live API logs
+tail -f /var/log/rentbuy-refresh.log       # data refresh logs</code></pre>
 
-<h3>Data refresh</h3>
+<h3>Data refresh (on EC2)</h3>
 <pre><code>cd ~/mortgage/api && python3.12 refresh_data.py</code></pre>
 
 <h3>Test endpoints</h3>
 <pre><code>curl https://api.rentbuysellapp.com/health
-curl -X POST https://api.rentbuysellapp.com/summary \
+curl -s -X POST https://api.rentbuysellapp.com/summary \
   -H "Content-Type: application/json" \
-  -d '{"monthly_rent":3000,"monthly_budget":5000}'</code></pre>
+  -d '{"monthly_rent":3000,"monthly_budget":5000}' | python3 -m json.tool | head -20</code></pre>
 
 </main>
 </div>
